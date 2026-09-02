@@ -14,14 +14,6 @@ class Configuration implements ConfigurationInterface
 
         $rootNode
             ->children()
-                ->arrayNode('http')
-                    ->addDefaultsIfNotSet()
-                    ->children()
-                        ->booleanNode('lazy_boot')
-                            ->defaultFalse()
-                        ->end()
-                    ->end()
-                ->end()
                 ->arrayNode('warmup')
                     ->addDefaultsIfNotSet()
                     ->children()

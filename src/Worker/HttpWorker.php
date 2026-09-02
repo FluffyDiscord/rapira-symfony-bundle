@@ -28,7 +28,6 @@ use Symfony\Component\HttpKernel\TerminableInterface;
 class HttpWorker
 {
     public function __construct(
-        private readonly bool                       $lazyBoot,
         private readonly KernelInterface            $kernel,
         private readonly EventDispatcherInterface   $eventDispatcher,
         private readonly bool                       $debug,
@@ -47,10 +46,8 @@ class HttpWorker
         $pid = getmypid();
         $this->log(sprintf('rapira dispatcher worker started, pid %d', $pid === false ? 0 : $pid));
 
-        if (!$this->lazyBoot) {
-            $this->kernel->boot();
-            $this->preloadResponseClasses();
-        }
+        $this->kernel->boot();
+        $this->preloadResponseClasses();
 
         $this->eventDispatcher->dispatch(new WorkerBootingEvent());
 

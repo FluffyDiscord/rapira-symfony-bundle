@@ -21,7 +21,6 @@ class HttpWorkerTest extends RapiraTestCase
     private function worker(WorkerKernelInterface $kernel, array $exchanges): HttpWorker
     {
         return new HttpWorker(
-            true,
             $kernel,
             new EventDispatcher(),
             false,

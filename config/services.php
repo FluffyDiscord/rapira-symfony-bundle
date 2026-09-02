@@ -33,7 +33,6 @@ return static function (ContainerConfigurator $container): void {
         ->set(HttpWorker::class)
         ->public()
         ->args([
-            false,
             service(KernelInterface::class),
             service(EventDispatcherInterface::class),
             param('kernel.debug'),

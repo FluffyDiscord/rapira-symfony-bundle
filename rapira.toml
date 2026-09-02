@@ -1,0 +1,17 @@
+[http]
+listen = "0.0.0.0:8000"
+max_body_size_mb = 20
+
+[http.uploads]
+dir = "/tmp"
+max_file_size_mb = 1
+max_files = 20
+
+[pool]
+entrypoint = "vendor/fluffydiscord/rapira-symfony-bundle/worker.php"
+mode = "dispatcher"
+processes = 4
+
+[log]
+level = "info"
+format = "json"

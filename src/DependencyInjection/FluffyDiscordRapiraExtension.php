@@ -20,7 +20,6 @@ use FluffyDiscord\RapiraBundle\Warmup\WarmupManifestRecorder;
 use FluffyDiscord\RapiraBundle\Warmup\WarmupManifestStorage;
 use FluffyDiscord\RapiraBundle\Warmup\WorkerWarmerInterface;
 use FluffyDiscord\RapiraBundle\Warmup\WorkerWarmupRunner;
-use FluffyDiscord\RapiraBundle\Worker\HttpWorker;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -45,14 +44,11 @@ class FluffyDiscordRapiraExtension extends Extension
     public function load(array $configs, ContainerBuilder $container): void
     {
         $configuration = new Configuration();
-        /** @var array{http: array{lazy_boot: bool}, warmup: array{enabled: bool, learn: bool, learn_requests: int, manifest_path: ?string}, doctrine: array{preconnect: bool}, profiling: array{xhprof: array{enabled: string|bool, output_dir: ?string}}, vips: array{enabled: string|bool, max_operations: int, max_memory_mb: int, max_files: int}} $config */
+        /** @var array{warmup: array{enabled: bool, learn: bool, learn_requests: int, manifest_path: ?string}, doctrine: array{preconnect: bool}, profiling: array{xhprof: array{enabled: string|bool, output_dir: ?string}}, vips: array{enabled: string|bool, max_operations: int, max_memory_mb: int, max_files: int}} $config */
         $config = $this->processConfiguration($configuration, $configs);
 
         $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
         $loader->load('services.php');
-
-        $httpWorker = $container->getDefinition(HttpWorker::class);
-        $httpWorker->replaceArgument(0, $config['http']['lazy_boot']);
 
         if ($config['warmup']['enabled']) {
             $this->registerWarmup($container, $config['warmup']);

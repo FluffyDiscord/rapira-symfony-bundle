@@ -1,14 +1,13 @@
 # fluffydiscord/rapira-symfony-bundle
 
-Runs a Symfony application as a resident worker under [Rapira](https://github.com/rapira-rs/rapira)
-in classic or **dispatcher mode**.
+Run a Symfony app as a resident worker under [Rapira](https://github.com/rapira-rs/rapira), classic or **dispatcher mode**.
 
-Only the HTTP worker is provided. Jobs / KV / Centrifugo / Temporal are not (waiting for Rapira).
+HTTP worker only. No Jobs / KV / Centrifugo / Temporal (waiting for Rapira).
 
 ## Requirements
 
 - PHP >= 8.4
-- Rapira running the pool in `mode = "dispatcher"` (classic mode falls back to the standard runtime)
+- Rapira pool with `mode = "dispatcher"` for the resident worker (classic mode uses the standard runtime)
 - `symfony/*` `^7.4 || ^8`
 
 ## Installation
@@ -23,8 +22,7 @@ Register the bundle (`config/bundles.php`):
 FluffyDiscord\RapiraBundle\FluffyDiscordRapiraBundle::class => ['all' => true],
 ```
 
-Use the kernel trait (`src/Kernel.php`) so a rebooted kernel keeps the properties the resident
-worker preserves:
+Add the kernel trait (`src/Kernel.php`) so a rebooted kernel keeps the properties the worker preserves:
 
 ```php
 use FluffyDiscord\RapiraBundle\Kernel\RapiraMicroKernelTrait;
@@ -35,14 +33,23 @@ class Kernel extends BaseKernel
 }
 ```
 
-The dispatcher entrypoint, **`worker.php`, ships with the bundle** — it bootstraps `.env` itself
-with `usePutenv()` (no `symfony/runtime`) and hands the booted kernel to the worker. There is
-nothing to write: point `rapira.toml` at the vendored file. `public/index.php` and `bin/console`
-stay exactly as the skeleton ships them and are used for classic mode and the console.
+`worker.php` ships vendored — nothing to write. It boots `.env` with `usePutenv()` (no `symfony/runtime`) and hands the kernel to the worker. `public/index.php` and `bin/console` stay as the skeleton ships them (classic mode + console).
+
+Copy the sample `rapira.toml` to the project root (Rapira reads it from there) and edit your copy:
+
+```bash
+cp vendor/fluffydiscord/rapira-symfony-bundle/rapira.toml rapira.toml
+```
 
 ```toml
 [http]
 listen = "0.0.0.0:8000"
+max_body_size_mb = 20
+
+[http.uploads]
+dir = "/tmp"
+max_file_size_mb = 1
+max_files = 20
 
 [pool]
 entrypoint = "vendor/fluffydiscord/rapira-symfony-bundle/worker.php"
@@ -54,18 +61,15 @@ level = "info"
 format = "json"
 ```
 
-The shipped worker defaults the kernel class to `App\Kernel`; override it with the
-`APP_KERNEL_CLASS` environment variable if yours differs. Classic mode and the console keep using
-the standard runtime (`rapira serve --classic public/index.php`, `php bin/console`) — no
-`SCRIPT_FILENAME` override is needed there because the classic SAPI sets it.
+Keep `entrypoint` pointing at the vendored `worker.php`; change everything else freely. Kernel class defaults to `App\Kernel`; override with `APP_KERNEL_CLASS`.
+
+**dev → classic, prod → dispatcher.** Classic runs the standard runtime per request (`rapira serve --classic public/index.php`), so code changes are picked up with no worker restart. Dispatcher runs the resident worker (`worker.php`). The console always uses the standard runtime (`php bin/console`).
 
 ## Configuration
 
 ```yaml
 # config/packages/rapira.yaml
 rapira:
-    http:
-        lazy_boot: false
     warmup:
         enabled: true            # boot-time warmers + learned-manifest recorder
         learn: true
@@ -75,10 +79,10 @@ rapira:
         preconnect: true         # open Postgres connections at worker boot
     profiling:
         xhprof:
-            enabled: false       # off by default; "auto" = ext-xhprof loaded and kernel.debug; true forces
+            enabled: false       # false (default) | true | "auto" (ext-xhprof loaded and kernel.debug)
             output_dir: ~        # default: ini xhprof.output_dir, then sys_get_temp_dir()/xhprof
     vips:                        # bound libvips's process-global cache at worker boot
-        enabled: auto            # auto = jcupitt/vips installed; true/false force
+        enabled: auto            # auto - true if jcupitt/vips installed
         max_operations: 50
         max_memory_mb: 50
         max_files: 20
@@ -86,23 +90,15 @@ rapira:
 
 ## Dispatcher-mode notes
 
-- **Streaming.** `StreamedResponse` (and `StreamedJsonResponse`) stream progressively and carry
-  `X-Accel-Buffering: no`. Callbacks must `echo` (or use `setChunks()`) — a `yield`-based callback
-  is **not** executed by Symfony's `sendContent()`.
-- **Superglobals are empty.** Read request data from the injected `Request`, never from
-  `$_GET`/`$_SERVER`; `echo`/`header()` output is discarded — respond through the returned Response.
-- **Logging.** `error_log()` output is discarded by Rapira in dispatcher mode; the bundle logs
-  through `\Rapira\log()` (the `app` log target).
-- **Sessions** work unchanged (native or `PdoSessionHandler`); the `services_resetter` clears
-  per-request state between requests.
-- **Uploads** are parsed host-side (`[http.uploads]`); the request factory maps them to Symfony
-  `UploadedFile`s. `move()` renames the host-spooled temp file before the exchange finalizes.
+- **Streaming.** `StreamedResponse` / `StreamedJsonResponse` stream progressively, carry `X-Accel-Buffering: no`. Callbacks must `echo` (or `setChunks()`); a `yield`-based callback is **not** run by `sendContent()`.
+- **Superglobals empty.** Read from the injected `Request`, not `$_GET`/`$_SERVER`. `echo`/`header()` output is discarded — respond through the Response.
+- **Logging.** `error_log()` is discarded; the bundle logs via `\Rapira\log()` (the `app` target).
+- **Sessions** work unchanged (native or `PdoSessionHandler`); `services_resetter` clears per-request state.
+- **Uploads** are parsed host-side (`[http.uploads]`), mapped to Symfony `UploadedFile`s. `move()` renames the host temp file before the exchange finalizes.
 
 ## Events
 
-`WorkerBootingEvent`, `WorkerRequestReceivedEvent` (carries the `Rapira\Http\Request`),
-`WorkerResponseSentEvent` (Symfony request + response), `WorkerRequestFailedEvent`
-(`Rapira\Http\Request` + throwable).
+`WorkerBootingEvent`, `WorkerRequestReceivedEvent` (`Rapira\Http\Request`), `WorkerResponseSentEvent` (Symfony request + response), `WorkerRequestFailedEvent` (`Rapira\Http\Request` + throwable).
 
 ## Testing
 
