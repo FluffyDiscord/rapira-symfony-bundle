@@ -1,0 +1,11 @@
+parameters:
+    level: max
+    paths:
+        - src
+    stubFiles:
+        - phpstan/xhprof.stub
+    scanFiles:
+        - vendor/rapira/contract/src/functions.php
+    ignoreErrors:
+        # RapiraMicroKernelTrait is consumed by the application's Kernel, not within the bundle.
+        - identifier: trait.unused

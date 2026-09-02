@@ -1,0 +1,61 @@
+{
+    "name": "fluffydiscord/rapira-symfony-bundle",
+    "description": "Rapira runtime for Symfony",
+    "license": "MIT",
+    "type": "symfony-bundle",
+    "authors": [
+        {
+            "name": "Rostislav Kaleta",
+            "email": "rostislavkaleta@gmail.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.4",
+        "rapira/contract": "dev-master",
+        "psr/log": "^3",
+        "symfony/dependency-injection": "^7.4 || ^8",
+        "symfony/error-handler": "^7.4 || ^8",
+        "symfony/event-dispatcher": "^7.4 || ^8",
+        "symfony/framework-bundle": "^7.4 || ^8",
+        "symfony/http-foundation": "^7.4 || ^8",
+        "symfony/http-kernel": "^7.4 || ^8"
+    },
+    "require-dev": {
+        "doctrine/dbal": "^3 || ^4",
+        "doctrine/orm": "^2 || ^3",
+        "doctrine/persistence": "^3 || ^4",
+        "jcupitt/vips": "^2",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2",
+        "phpstan/phpstan-symfony": "^2",
+        "phpunit/phpunit": "^13",
+        "sentry/sentry-symfony": "^5",
+        "symfony/form": "^7.4 || ^8",
+        "symfony/mime": "^7.4 || ^8"
+    },
+    "suggest": {
+        "sentry/sentry-symfony": "Report worker exceptions to Sentry",
+        "doctrine/dbal": "Preconnect Doctrine connections at worker boot",
+        "ext-xhprof": "Per-request profiling under the resident worker",
+        "jcupitt/vips": "Bound libvips's process-global cache at worker boot (RSS control)"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "FluffyDiscord\\RapiraBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FluffyDiscord\\RapiraBundle\\Tests\\": "tests/"
+        },
+        "symfony/runtime": true
+    },
+    "config": {
+        "allow-plugins": {
+            "symfony/runtime": true,
+            "phpstan/extension-installer": true
+        }
+    }
+}

@@ -1,0 +1,12 @@
+[http]
+listen = "0.0.0.0:8000"
+max_body_size_mb = 20
+
+[pool]
+entrypoint = "public/index.php"
+mode = "classic"
+processes = 1
+
+[log]
+level = "info"
+format = "plain"

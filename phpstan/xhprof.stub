@@ -1,0 +1,15 @@
+<?php
+
+const XHPROF_FLAGS_NO_BUILTINS = 1;
+const XHPROF_FLAGS_CPU = 2;
+const XHPROF_FLAGS_MEMORY = 4;
+
+/**
+ * @param array<string, mixed> $options
+ */
+function xhprof_enable(int $flags = 0, array $options = []): void {}
+
+/**
+ * @return array<string, array<string, int|float>>
+ */
+function xhprof_disable(): array {}
