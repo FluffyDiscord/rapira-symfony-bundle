@@ -13,7 +13,7 @@ use FluffyDiscord\RapiraBundle\Writer\ResponseWriter;
 use Rapira\Exception\RapiraThrowable;
 use Rapira\Http\Exchange;
 use Sentry\State\HubInterface as SentryHubInterface;
-use Symfony\Component\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetterInterface;
 use Symfony\Component\ErrorHandler\ErrorRenderer\HtmlErrorRenderer;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
