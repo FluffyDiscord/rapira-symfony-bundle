@@ -12,6 +12,7 @@ use Rapira\Http\Exchange;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetter;
 
 class HttpWorkerTest extends RapiraTestCase
 {
@@ -26,7 +27,7 @@ class HttpWorkerTest extends RapiraTestCase
             false,
             new ScriptedDispatcher($exchanges),
             new SymfonyRequestFactory('/srv/app/public/index.php'),
-            null,
+            new ServicesResetter(new \ArrayIterator([]), []),
             null,
         );
     }
