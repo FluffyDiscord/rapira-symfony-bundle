@@ -25,8 +25,23 @@ readonly class VipsCacheLimiter
 
     public function __invoke(WorkerBootingEvent $event): void
     {
-        Config::cacheSetMax($this->maxOperations);
-        Config::cacheSetMaxMem($this->maxMemoryBytes);
-        Config::cacheSetMaxFiles($this->maxFiles);
+        try {
+            Config::cacheSetMax($this->maxOperations);
+            Config::cacheSetMaxMem($this->maxMemoryBytes);
+            Config::cacheSetMaxFiles($this->maxFiles);
+        } catch (\Throwable $throwable) {
+            $this->log('libvips cache not bounded (needs ffi.enable=true and libvips present): ' . $throwable->getMessage());
+        }
+    }
+
+    private function log(string $message): void
+    {
+        if (\function_exists('Rapira\log')) {
+            \Rapira\log('[rapira-symfony] ' . $message);
+
+            return;
+        }
+
+        error_log('[rapira-symfony] ' . $message);
     }
 }
