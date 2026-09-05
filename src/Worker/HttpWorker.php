@@ -29,11 +29,11 @@ class HttpWorker
 {
     public function __construct(
         private readonly KernelInterface            $kernel,
-        private readonly EventDispatcherInterface   $eventDispatcher,
+        private EventDispatcherInterface            $eventDispatcher,
         private readonly bool                       $debug,
         private readonly DispatcherInterface        $dispatcher,
         private readonly SymfonyRequestFactoryInterface $requestFactory,
-        private readonly ?ServicesResetterInterface $servicesResetter = null,
+        private ?ServicesResetterInterface          $servicesResetter = null,
         private readonly ?SentryHubInterface        $sentryHub = null,
     )
     {
@@ -120,9 +120,11 @@ class HttpWorker
                 $this->writeErrorResponse($exchange, $throwable);
             }
 
-            $rebooted = true;
             if ($this->kernel instanceof RebootableInterface) {
                 $this->kernel->reboot(null);
+                $this->rebindToCurrentContainer();
+
+                $rebooted = true;
             }
         } finally {
             if (!$rebooted) {
@@ -131,6 +133,26 @@ class HttpWorker
 
             $this->sentryHub?->getClient()?->flush();
             $this->sentryHub?->popScope();
+        }
+    }
+
+    /**
+     * reboot() swaps in a new container; the resetter and dispatcher this worker holds belong
+     * to the old one, and keeping them would leave the live container's services — a closed
+     * Doctrine EntityManager among them — never reset again.
+     */
+    private function rebindToCurrentContainer(): void
+    {
+        $container = $this->kernel->getContainer();
+
+        $servicesResetter = $container->has('services_resetter') ? $container->get('services_resetter') : null;
+        if ($servicesResetter instanceof ServicesResetterInterface) {
+            $this->servicesResetter = $servicesResetter;
+        }
+
+        $eventDispatcher = $container->has('event_dispatcher') ? $container->get('event_dispatcher') : null;
+        if ($eventDispatcher instanceof EventDispatcherInterface) {
+            $this->eventDispatcher = $eventDispatcher;
         }
     }
 
