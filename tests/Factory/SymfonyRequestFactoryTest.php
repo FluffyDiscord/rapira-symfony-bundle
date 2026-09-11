@@ -143,4 +143,81 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
         self::assertInstanceOf(UploadedFile::class, $nested['a']['b']);
         self::assertSame('deep.txt', $nested['a']['b']->getClientOriginalName());
     }
+
+    public function testEmptyFilenamePartIsNotAnUpload(): void
+    {
+        $spool = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
+        $this->spooledFiles[] = $spool;
+
+        $files = [
+            new RapiraUploadedFile('avatar', '', 'application/octet-stream', [], $spool, 0),
+        ];
+        $multipart = new Multipart([new FormField('title', 'Hello', [])], $files);
+
+        $rapiraRequest = $this->makeRequest(
+            method: 'POST',
+            headers: ['content-type' => ['multipart/form-data; boundary=xyz']],
+            body: $multipart,
+        );
+
+        $request = $this->factory()->createRequest($rapiraRequest);
+
+        self::assertTrue($request->files->has('avatar'));
+        self::assertNull($request->files->get('avatar'));
+        self::assertSame('Hello', $request->request->get('title'));
+    }
+
+    public function testEmptyFilenamePartDoesNotDisturbSiblingUploads(): void
+    {
+        $spoolEmpty = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
+        $spoolReal = (string) tempnam(sys_get_temp_dir(), 'rapira-upReal-');
+        $this->spooledFiles[] = $spoolEmpty;
+        $this->spooledFiles[] = $spoolReal;
+
+        $files = [
+            new RapiraUploadedFile('images[0][file]', '', 'application/octet-stream', [], $spoolEmpty, 0),
+            new RapiraUploadedFile('images[1][file]', 'photo.png', 'image/png', [], $spoolReal, 10),
+        ];
+        $multipart = new Multipart([], $files);
+
+        $rapiraRequest = $this->makeRequest(
+            method: 'POST',
+            headers: ['content-type' => ['multipart/form-data; boundary=xyz']],
+            body: $multipart,
+        );
+
+        $request = $this->factory()->createRequest($rapiraRequest);
+
+        $images = $request->files->all()['images'];
+        self::assertArrayHasKey(0, $images);
+        self::assertNull($images[0]['file']);
+        self::assertInstanceOf(UploadedFile::class, $images[1]['file']);
+        self::assertSame('photo.png', $images[1]['file']->getClientOriginalName());
+    }
+
+    public function testEmptyFilenamePartKeepsListIndicesAligned(): void
+    {
+        $spoolEmpty = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
+        $spoolReal = (string) tempnam(sys_get_temp_dir(), 'rapira-upReal-');
+        $this->spooledFiles[] = $spoolEmpty;
+        $this->spooledFiles[] = $spoolReal;
+
+        $files = [
+            new RapiraUploadedFile('docs[]', '', 'application/octet-stream', [], $spoolEmpty, 0),
+            new RapiraUploadedFile('docs[]', 'deep.txt', 'text/plain', [], $spoolReal, 20),
+        ];
+        $multipart = new Multipart([], $files);
+
+        $rapiraRequest = $this->makeRequest(
+            method: 'POST',
+            headers: ['content-type' => ['multipart/form-data; boundary=xyz']],
+            body: $multipart,
+        );
+
+        $request = $this->factory()->createRequest($rapiraRequest);
+
+        $docs = $request->files->all()['docs'];
+        self::assertSame([1], array_keys($docs));
+        self::assertSame('deep.txt', $docs[1]->getClientOriginalName());
+    }
 }
