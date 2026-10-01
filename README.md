@@ -1,26 +1,26 @@
 # Rapira Runtime for Symfony
 
-Run Symfony as a resident worker under [Rapira](https://github.com/rapira-rs/rapira) dispatcher mode.
+Symfony runtime for [Rapira](https://github.com/rapira-rs/rapira). HTTP only.
 
-HTTP only.
+DDEV users: see [DDEV add-on](#ddev-add-on).
 
 ## Features
 
-- [Resident HTTP worker](#usage) — boots once, `services_resetter` runs after every response
+- [HTTP worker](#usage) — kernel boots once, `services_resetter` runs *after* the response
 - [Worker warmup](#worker-warmup) — zero-config; first request at steady-state speed
 - [Streaming](#responsefile-streaming) — `StreamedResponse`, `StreamedJsonResponse`, `BinaryFileResponse`
-- [Uploads](#uploads) — parsed by Rapira, handed over as `UploadedFile`
-- [Error handling](#error-handling) — kernel reboot after a crash, real `500` responses
-- [Sentry](#sentry) — one scope per request, flushed after the response
-- [PostgreSQL preconnect](#configuration) — connections open before the first request
-- [xhprof profiling](#configuration) — per-request profiles from the resident worker
-- [libvips cache limit](#configuration) — bounded RSS for image-heavy apps
+- [Uploads](#uploads) — plain `UploadedFile`s
+- [Graceful error handling](#error-handling) — kernel reboot after a crash, real `500` responses
+- [Sentry](#sentry) — one scope per request
+- [PostgreSQL preconnect](#configuration)
+- [xhprof profiling](#configuration)
+- [libvips cache limit](#configuration)
 
 ## Requirements
 
 - PHP >= 8.4
-- Rapira nightly (boot-time `$_SERVER`, [rapira#129](https://github.com/rapira-rs/rapira/issues/129))
-- `symfony/*` `^7.4 || ^8`
+- Rapira nightly — needs boot-time `$_SERVER` ([rapira#129](https://github.com/rapira-rs/rapira/issues/129))
+- Symfony `^7.4 || ^8`
 
 ## Installation
 
@@ -38,7 +38,7 @@ composer require fluffydiscord/rapira-symfony-bundle
 
 ## Usage
 
-1. Select the runtime:
+1. Set the runtime:
 
 ```shell
 composer config extra.runtime.class 'FluffyDiscord\RapiraBundle\Runtime\Runtime'
@@ -58,7 +58,7 @@ class Kernel extends BaseKernel
 }
 ```
 
-3. `rapira.toml` in the project root — point `entrypoint` at your stock `public/index.php`. Full sample: `vendor/fluffydiscord/rapira-symfony-bundle/rapira.toml`.
+3. `rapira.toml` — point `entrypoint` at your `public/index.php`:
 
 ```toml
 [http]
@@ -74,16 +74,18 @@ processes = 4
 rapira serve rapira.toml
 ```
 
-`public/index.php` and `bin/console` stay as the skeleton ships them. The runtime takes over only under Rapira `dispatcher` mode; console and `classic` mode get the stock Symfony runner.
+Full sample: [`rapira.toml`](rapira.toml).
 
-> Rather not touch `composer.json`? Set the `APP_RUNTIME` env var on the Rapira process instead (Dockerfile `ENV`, compose `environment`). `.env` files are read too late for it.
+`public/index.php` and `bin/console` stay untouched. Console and `classic` mode run the stock Symfony runner.
+
+> Rather not touch `composer.json`? Set `APP_RUNTIME` on the Rapira process (Dockerfile `ENV`, compose `environment`). `.env` is read too late for it.
 
 ### dev vs prod
 
-|      | `mode`       | Code changes                 |
-| ---- | ------------ | ---------------------------- |
+|      | `mode`       | Code changes                  |
+| ---- | ------------ | ----------------------------- |
 | dev  | `classic`    | picked up on the next request |
-| prod | `dispatcher` | restart Rapira               |
+| prod | `dispatcher` | restart Rapira                |
 
 ## Configuration
 
@@ -111,26 +113,26 @@ rapira:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `warmup.enabled` | `true` | Master switch for the boot-time warmers and the recorder. See [Worker warmup](#worker-warmup). |
+| `warmup.enabled` | `true` | Master switch for the warmers and the recorder. See [Worker warmup](#worker-warmup). |
 | `warmup.learn` | `true` | Record which classes and cache files real responses load, replay them at every later worker boot. |
 | `warmup.learn_requests` | `30` | Stop recording after this many responses per worker. |
 | `warmup.manifest_path` | `null` | `null` = `<kernel.cache_dir>/rapira/warmup.manifest.json`. Point outside the cache dir to keep learning across deploys. |
 | `doctrine.preconnect` | `false` | Open PostgreSQL connections at worker boot. Needs `doctrine/dbal`. |
 | `profiling.xhprof.enabled` | `false` | `true` = profile every request. `auto` = when `ext-xhprof` is loaded and `kernel.debug` is on. |
 | `profiling.xhprof.output_dir` | `null` | `null` = ini `xhprof.output_dir`, then `<sys_get_temp_dir>/xhprof`. |
-| `vips.enabled` | `auto` | Bound libvips's process-global cache at worker boot. `auto` = when `jcupitt/vips` is installed. |
+| `vips.enabled` | `auto` | Cap libvips's process-wide cache at worker boot. `auto` = when `jcupitt/vips` is installed. |
 | `vips.max_*` | `50` / `50` / `20` | libvips cache limits: operations, memory (MB), open files. |
 
 ## Worker warmup
 
-The bundle warms during worker boot, before Rapira hands it the first request. Zero config:
+The bundle warms during worker boot, before Rapira sends the first request. Zero config:
 
 1. **Generic warmers** — router, Doctrine metadata, event listeners, form types, Twig runtimes, container preload class list. Missing dependencies are skipped.
 2. **Learned manifest** — workers record what real traffic loads; every next worker replays it at boot. Invalidated when the container is rebuilt.
 
-Runs only in `dispatcher` mode — the runtime sets `APP_RUNTIME_MODE=web=1&worker=1`, overriding any `.env` value. In `classic` mode nothing stays warm, so warmup switches itself off.
+`dispatcher` mode only — the runtime sets `APP_RUNTIME_MODE=web=1&worker=1`, whatever `.env` says. `classic` mode keeps nothing warm, so warmup switches itself off.
 
-> Warmed classes live in each worker's opcache — budget `opcache.memory_consumption` × `processes`.
+Warmed classes live in each worker's opcache — budget `opcache.memory_consumption` × `processes`.
 
 ### Warming your own services
 
@@ -154,9 +156,7 @@ Autoconfigured. Or listen to `WorkerBootingEvent`.
 
 ## Response/file streaming
 
-`StreamedResponse` and `StreamedJsonResponse` stream progressively and carry `X-Accel-Buffering: no`.
-
-> Callbacks must `echo` — a `yield`-based callback is **not** run:
+`StreamedResponse` and `StreamedJsonResponse` stream as they go and send `X-Accel-Buffering: no`. Callbacks must `echo` — a `\Generator` callback never runs:
 
 ```diff
  return new StreamedResponse(
@@ -168,19 +168,19 @@ Autoconfigured. Or listen to `WorkerBootingEvent`.
  );
 ```
 
-`BinaryFileResponse` inside the `[http.sendfile]` root is sent by Rapira straight from disk. Files outside it, and `deleteFileAfterSend()`, stream through PHP.
+`BinaryFileResponse` inside the `[http.sendfile]` root → Rapira sends it straight from disk. Outside it, or with `deleteFileAfterSend()` → streamed through PHP.
 
 ## Request data
 
-Read everything from the injected `Request`:
+Superglobals aren't per-request. Use the `Request`:
 
-- `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES` stay empty.
+- `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES` are empty.
 - `$_SERVER` holds the process env, never the current request.
-- `echo` / `header()` outside a streamed callback are discarded — respond through the `Response`.
+- `echo` / `header()` outside a streamed callback are dropped — return a `Response`.
 
 ## Uploads
 
-Rapira parses multipart bodies (`[http.uploads]` in `rapira.toml`) and the bundle maps them to Symfony `UploadedFile`s. `move()` works as usual.
+Rapira parses multipart bodies, you get regular `UploadedFile`s. `move()` works as usual.
 
 ```toml
 [http.uploads]
@@ -197,16 +197,16 @@ Over the limit → `413`.
 |---|---|---|
 | exception in your code | Symfony's exception page | Symfony's error page |
 | exception escaping Symfony | `HtmlErrorRenderer` page | bare `500`, empty body |
-| exception after the response head was sent | response cut off | response cut off |
+| exception after headers were sent | response cut off | response cut off |
 
-After an escaping exception the kernel reboots, so the next request gets a clean container. Details go to the Rapira log and Sentry if installed.
-
-> `error_log()` output is discarded in dispatcher mode — the bundle logs through `\Rapira\log()` (the `app` target).
+- Escaping exception → kernel reboots; the next request gets a clean container.
+- Details go to the Rapira log and Sentry if installed.
+- `error_log()` output is lost in `dispatcher` mode — the bundle logs through `\Rapira\log()` (target `app`).
 
 Not covered:
 
-- kernel boot failure — no error page; the exception lands in the Rapira log as a PHP fatal error
-- Rapira `worker` mode — gets the stock Symfony runner, no resident loop; use `dispatcher`
+- kernel boot failure — no error page, just a PHP fatal in the Rapira log
+- Rapira `worker` mode — stock Symfony runner, no worker loop; use `dispatcher`
 
 ## Sentry
 
@@ -214,7 +214,7 @@ Not covered:
 composer require sentry/sentry-symfony
 ```
 
-Configure as usual. Each request gets its own scope, flushed after the response.
+Configure as usual.
 
 ## Events
 
@@ -227,11 +227,19 @@ Configure as usual. Each request gets its own scope, flushed after the response.
 
 ## Developing with Symfony and Rapira
 
-Same rules as any resident worker — see [Developing with Symfony and RoadRunner](https://github.com/FluffyDiscord/roadrunner-symfony-bundle#developing-with-symfony-and-roadrunner): no per-request state in services, static form defaults, lean `User` session serialization.
+Same rules as RoadRunner — see [Developing with Symfony and RoadRunner](https://github.com/FluffyDiscord/roadrunner-symfony-bundle#developing-with-symfony-and-roadrunner): stateless services, static form defaults, lean `User` session serialization.
+
+## DDEV add-on
+
+```shell
+ddev add-on get FluffyDiscord/ddev-rapira
+```
+
+See the [add-on repository](https://github.com/FluffyDiscord/ddev-rapira) for configuration and usage.
 
 ## Testing
 
 ```shell
-tests/docker-qa.sh                # PHPStan (level max) + PHPUnit, in a container
-tests/docker/run-integration.sh   # IT-101..IT-107 against the real Rapira binary
+tests/docker-qa.sh                # PHPStan (level max) + PHPUnit
+tests/docker/run-integration.sh   # integration suite against the real Rapira binary
 ```
