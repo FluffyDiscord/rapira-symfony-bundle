@@ -2,7 +2,7 @@
 
 namespace FluffyDiscord\RapiraBundle\Tests\Double;
 
-use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\DependencyInjection\ServicesResetterInterface;
 
 /**
  * Counts reset() calls so a test can tell which container's resetter the worker used.

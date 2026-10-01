@@ -6,8 +6,8 @@ use FluffyDiscord\RapiraBundle\Factory\SymfonyRequestFactory;
 use FluffyDiscord\RapiraBundle\Tests\RapiraTestCase;
 use Rapira\Http\FormField;
 use Rapira\Http\Multipart;
-use Rapira\Http\Tls;
 use Rapira\Http\UploadedFile as RapiraUploadedFile;
+use Rapira\Tls;
 use Rapira\UnixAddress;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 

@@ -15,8 +15,7 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\DependencyInjection\Container;
-use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetter;
-use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\DependencyInjection\ServicesResetterInterface;
 
 class HttpWorkerTest extends RapiraTestCase
 {
@@ -31,7 +30,7 @@ class HttpWorkerTest extends RapiraTestCase
             false,
             new ScriptedDispatcher($exchanges),
             new SymfonyRequestFactory('/srv/app/public/index.php'),
-            $servicesResetter ?? new ServicesResetter(new \ArrayIterator([]), []),
+            $servicesResetter ?? new RecordingServicesResetter(),
             null,
         );
     }

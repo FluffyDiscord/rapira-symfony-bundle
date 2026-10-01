@@ -5,8 +5,8 @@ namespace FluffyDiscord\RapiraBundle\Tests;
 use PHPUnit\Framework\TestCase;
 use Rapira\Http\Multipart;
 use Rapira\Http\Request;
-use Rapira\Http\Tls;
 use Rapira\InetAddress;
+use Rapira\Tls;
 use Rapira\UnixAddress;
 
 abstract class RapiraTestCase extends TestCase

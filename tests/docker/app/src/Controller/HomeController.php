@@ -11,6 +11,9 @@ class HomeController
     public function __construct(
         #[Autowire('%env(RAPIRA_TEST_MARKER)%')]
         private readonly string $marker,
+
+        #[Autowire('%kernel.runtime_mode.worker%')]
+        private readonly bool   $isWorker,
     )
     {
     }
@@ -18,6 +21,8 @@ class HomeController
     #[Route('/', methods: ['GET'])]
     public function __invoke(): Response
     {
-        return new Response('OK marker=' . $this->marker . ' pid=' . getmypid());
+        $workerFlag = $this->isWorker ? '1' : '0';
+
+        return new Response('OK marker=' . $this->marker . ' worker=' . $workerFlag . ' pid=' . getmypid());
     }
 }

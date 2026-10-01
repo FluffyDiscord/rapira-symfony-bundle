@@ -7,8 +7,8 @@ dir = "/tmp"
 max_file_size_mb = 1
 max_files = 20
 
-[pool]
-entrypoint = "vendor/fluffydiscord/rapira-symfony-bundle/worker.php"
+[http.pool]
+entrypoint = "public/index.php"
 mode = "dispatcher"
 processes = 1
 
