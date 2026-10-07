@@ -145,33 +145,42 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
 
     /**
      * @param array<string, list<string>> $headers
-     * @return array<string, string>
+     * @return array<array-key, mixed>
      */
     private function parseCookies(array $headers): array
     {
         $cookieValues = $headers['cookie'] ?? [];
         $cookieHeader = implode('; ', $cookieValues);
-        if ($cookieHeader === '') {
-            return [];
-        }
 
-        $cookies = [];
-        foreach (explode(';', $cookieHeader) as $pair) {
-            $equalsPosition = strpos($pair, '=');
-            if ($equalsPosition === false) {
+        $pairs = [];
+        $seenNames = [];
+        foreach (explode(';', $cookieHeader) as $cookie) {
+            $trimmedCookie = ltrim($cookie, " \t\n\r\v\f");
+            [$name, $rawValue] = explode('=', $trimmedCookie, 2) + [1 => ''];
+            if ($name === '') {
                 continue;
             }
 
-            $name = trim(substr($pair, 0, $equalsPosition));
-            if ($name === '' || \array_key_exists($name, $cookies)) {
+            $encodedName = urlencode($name);
+            $registeredCookie = $this->parseQueryString($encodedName);
+            $registeredName = array_key_first($registeredCookie);
+            if ($registeredName === null) {
                 continue;
             }
 
-            $rawValue = substr($pair, $equalsPosition + 1);
-            $cookies[$name] = rawurldecode($rawValue);
+            $isPlainName = !\is_array($registeredCookie[$registeredName]);
+            $isRepeatedPlainName = $isPlainName && isset($seenNames[$registeredName]);
+            if ($isRepeatedPlainName) {
+                continue;
+            }
+
+            $seenNames[$registeredName] = true;
+
+            $decodedValue = rawurldecode($rawValue);
+            $pairs[] = $encodedName . '=' . urlencode($decodedValue);
         }
 
-        return $cookies;
+        return $this->parseQueryString(implode('&', $pairs));
     }
 
     /**
@@ -186,13 +195,34 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
 
         $contentType = $server['CONTENT_TYPE'] ?? '';
         $contentTypeIsString = \is_string($contentType);
-        $isFormUrlEncoded = $contentTypeIsString && str_starts_with($contentType, 'application/x-www-form-urlencoded');
+        if (!$contentTypeIsString) {
+            return [];
+        }
+
+        $mediaType = $this->getMediaType($contentType);
+        $isFormUrlEncoded = $mediaType === 'application/x-www-form-urlencoded';
         if (!$isFormUrlEncoded) {
             return [];
         }
 
+        return $this->parseQueryString($body);
+    }
+
+    private function getMediaType(string $contentType): string
+    {
+        $mediaTypeLength = strcspn($contentType, ';, ');
+        $mediaType = substr($contentType, 0, $mediaTypeLength);
+
+        return strtolower($mediaType);
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private function parseQueryString(string $queryString): array
+    {
         $parameters = [];
-        parse_str($body, $parameters);
+        parse_str($queryString, $parameters);
 
         return $parameters;
     }
@@ -212,10 +242,7 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
             $pairs[] = urlencode($field->name) . '=' . urlencode($field->value);
         }
 
-        $parameters = [];
-        parse_str(implode('&', $pairs), $parameters);
-
-        return $parameters;
+        return $this->parseQueryString(implode('&', $pairs));
     }
 
     /**
@@ -224,33 +251,48 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
      */
     private function buildFiles(array $uploadedFiles): array
     {
-        $files = [];
-        foreach ($uploadedFiles as $uploadedFile) {
-            if ($uploadedFile->clientFilename === '') {
-                $symfonyUploadedFile = [
-                    'error' => \UPLOAD_ERR_NO_FILE,
-                    'full_path' => '',
-                    'name' => '',
-                    'size' => 0,
-                    'tmp_name' => '',
-                    'type' => $uploadedFile->clientMediaType ?? '',
-                ];
-            } else {
-                $keptPath = $this->keepSpooledFile($uploadedFile->tmpPath);
-                $symfonyUploadedFile = new UploadedFile(
-                    $keptPath,
-                    $uploadedFile->clientFilename,
-                    $uploadedFile->clientMediaType,
-                    \UPLOAD_ERR_OK,
-                    true,
-                );
+        $pairs = [];
+        foreach ($uploadedFiles as $index => $uploadedFile) {
+            $isUploadName = $this->isUploadName($uploadedFile->name);
+            if ($isUploadName) {
+                $pairs[] = urlencode($uploadedFile->name) . '=' . $index;
             }
-
-            $keys = $this->parseFieldNameKeys($uploadedFile->name);
-            $files = $this->insertFile($files, $keys, $symfonyUploadedFile);
         }
 
+        $files = $this->parseQueryString(implode('&', $pairs));
+        array_walk_recursive($files, function (string &$file) use ($uploadedFiles): void {
+            $index = (int) $file;
+            $file = $this->createFile($uploadedFiles[$index]);
+        });
+
         return $files;
+    }
+
+    /**
+     * @return UploadedFile|array{error: int, full_path: string, name: string, size: int, tmp_name: string, type: string}
+     */
+    private function createFile(RapiraUploadedFile $uploadedFile): UploadedFile|array
+    {
+        if ($uploadedFile->clientFilename === '') {
+            return [
+                'error' => \UPLOAD_ERR_NO_FILE,
+                'full_path' => '',
+                'name' => '',
+                'size' => 0,
+                'tmp_name' => '',
+                'type' => $uploadedFile->clientMediaType ?? '',
+            ];
+        }
+
+        $keptPath = $this->keepSpooledFile($uploadedFile->tmpPath);
+
+        return new UploadedFile(
+            $keptPath,
+            $uploadedFile->clientFilename,
+            $uploadedFile->clientMediaType,
+            \UPLOAD_ERR_OK,
+            true,
+        );
     }
 
     private function keepSpooledFile(string $spooledPath): string
@@ -261,61 +303,30 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
         return $keptPath;
     }
 
-    /**
-     * @param array<array-key, mixed> $files
-     * @param list<string> $keys
-     * @param UploadedFile|array{error: int, full_path: string, name: string, size: int, tmp_name: string, type: string} $file
-     * @return array<array-key, mixed>
-     */
-    private function insertFile(array $files, array $keys, UploadedFile|array $file): array
+    private function isUploadName(string $fieldName): bool
     {
-        $key = array_shift($keys);
-        if ($key === null) {
-            return $files;
+        $depth = 0;
+        $length = \strlen($fieldName);
+        for ($position = 0; $position < $length; $position++) {
+            $character = $fieldName[$position];
+            if ($character === '[') {
+                $depth++;
+            }
+
+            if ($character === ']') {
+                $depth--;
+
+                $nextCharacter = $fieldName[$position + 1] ?? '[';
+                if ($nextCharacter !== '[') {
+                    return false;
+                }
+            }
+
+            if ($depth < 0) {
+                return false;
+            }
         }
 
-        $isLeaf = $keys === [];
-
-        if ($key === '') {
-            $files[] = $isLeaf ? $file : $this->insertFile([], $keys, $file);
-
-            return $files;
-        }
-
-        if ($isLeaf) {
-            $files[$key] = $file;
-
-            return $files;
-        }
-
-        $existingChild = $files[$key] ?? [];
-        $childArray = \is_array($existingChild) ? $existingChild : [];
-        $files[$key] = $this->insertFile($childArray, $keys, $file);
-
-        return $files;
-    }
-
-    /**
-     * "files[a][b]" → ["files", "a", "b"]; "docs[]" → ["docs", ""]; "avatar" → ["avatar"].
-     *
-     * @return list<string>
-     */
-    private function parseFieldNameKeys(string $fieldName): array
-    {
-        $bracketPosition = strpos($fieldName, '[');
-        if ($bracketPosition === false) {
-            return [$fieldName];
-        }
-
-        $base = substr($fieldName, 0, $bracketPosition);
-        $keys = [$base];
-
-        $matches = [];
-        preg_match_all('/\[([^\]]*)\]/', $fieldName, $matches);
-        foreach ($matches[1] as $key) {
-            $keys[] = $key;
-        }
-
-        return $keys;
+        return $depth === 0;
     }
 }
