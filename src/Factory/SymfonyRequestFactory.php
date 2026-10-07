@@ -37,8 +37,9 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
         $query = [];
         parse_str($queryString, $query);
 
-        $server = $this->buildServerBag($rapiraRequest, $path, $queryString);
-        $cookies = $this->parseCookies($rapiraRequest->headers);
+        $headers = $this->getSafeLowercaseHeaders($rapiraRequest->headers);
+        $server = $this->buildServerBag($rapiraRequest, $headers, $path, $queryString);
+        $cookies = $this->parseCookies($headers);
 
         $body = $rapiraRequest->body;
         if ($body instanceof Multipart) {
@@ -55,9 +56,31 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     }
 
     /**
+     * @param array<string, list<string>> $headers
+     * @return array<string, list<string>>
+     */
+    private function getSafeLowercaseHeaders(array $headers): array
+    {
+        $safeHeaders = [];
+        foreach ($headers as $name => $values) {
+            $isSafeName = preg_match('/^[A-Za-z0-9-]+$/', $name) === 1;
+            if (!$isSafeName) {
+                continue;
+            }
+
+            $lowercaseName = strtolower($name);
+            $existingValues = $safeHeaders[$lowercaseName] ?? [];
+            $safeHeaders[$lowercaseName] = [...$existingValues, ...$values];
+        }
+
+        return $safeHeaders;
+    }
+
+    /**
+     * @param array<string, list<string>> $headers
      * @return non-empty-array<string, string|int|float>
      */
-    private function buildServerBag(RapiraRequest $rapiraRequest, string $path, string $queryString): array
+    private function buildServerBag(RapiraRequest $rapiraRequest, array $headers, string $path, string $queryString): array
     {
         $requestUri = $queryString === '' ? $path : $path . '?' . $queryString;
 
@@ -103,7 +126,7 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
             $server['HTTPS'] = 'on';
         }
 
-        foreach ($rapiraRequest->headers as $name => $values) {
+        foreach ($headers as $name => $values) {
             $key = strtoupper(str_replace('-', '_', $name));
             $separator = $name === 'cookie' ? '; ' : ', ';
             $value = implode($separator, $values);
@@ -213,8 +236,9 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
                     'type' => $uploadedFile->clientMediaType ?? '',
                 ];
             } else {
+                $keptPath = $this->keepSpooledFile($uploadedFile->tmpPath);
                 $symfonyUploadedFile = new UploadedFile(
-                    $uploadedFile->tmpPath,
+                    $keptPath,
                     $uploadedFile->clientFilename,
                     $uploadedFile->clientMediaType,
                     \UPLOAD_ERR_OK,
@@ -227,6 +251,14 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
         }
 
         return $files;
+    }
+
+    private function keepSpooledFile(string $spooledPath): string
+    {
+        $keptPath = $spooledPath . '-kept';
+        rename($spooledPath, $keptPath);
+
+        return $keptPath;
     }
 
     /**

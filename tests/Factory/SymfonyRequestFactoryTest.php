@@ -6,6 +6,7 @@ use FluffyDiscord\RapiraBundle\Factory\SymfonyRequestFactory;
 use FluffyDiscord\RapiraBundle\Tests\RapiraTestCase;
 use Rapira\Http\FormField;
 use Rapira\Http\Multipart;
+use Rapira\Http\Request as RapiraRequest;
 use Rapira\Http\UploadedFile as RapiraUploadedFile;
 use Rapira\Tls;
 use Rapira\UnixAddress;
@@ -13,22 +14,47 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 class SymfonyRequestFactoryTest extends RapiraTestCase
 {
-    /** @var list<string> */
-    private array $spooledFiles = [];
+    private string $spoolDirectory;
+
+    protected function setUp(): void
+    {
+        $this->spoolDirectory = sys_get_temp_dir() . '/rapira-spool-test-' . bin2hex(random_bytes(4));
+        mkdir($this->spoolDirectory);
+    }
 
     protected function tearDown(): void
     {
-        foreach ($this->spooledFiles as $file) {
-            if (is_file($file)) {
-                unlink($file);
-            }
+        $spooledFiles = glob($this->spoolDirectory . '/*') ?: [];
+        foreach ($spooledFiles as $file) {
+            unlink($file);
         }
-        $this->spooledFiles = [];
+
+        rmdir($this->spoolDirectory);
     }
 
     private function factory(): SymfonyRequestFactory
     {
         return new SymfonyRequestFactory('/srv/app/public/index.php');
+    }
+
+    private function spool(string $content = ''): string
+    {
+        $path = (string) tempnam($this->spoolDirectory, 'up-');
+        file_put_contents($path, $content);
+
+        return $path;
+    }
+
+    /**
+     * @param list<RapiraUploadedFile> $files
+     */
+    private function makeMultipartRequest(array $files): RapiraRequest
+    {
+        return $this->makeRequest(
+            method: 'POST',
+            headers: ['content-type' => ['multipart/form-data; boundary=xyz']],
+            body: new Multipart([], $files),
+        );
     }
 
     public function testSplitsTargetIntoPathAndQuery(): void
@@ -78,6 +104,34 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
         self::assertSame('dark', $request->cookies->get('theme'));
     }
 
+    public function testHeaderNamesAreMatchedCaseInsensitively(): void
+    {
+        $headers = [
+            'Cookie'       => ['sid=abc'],
+            'cookie'       => ['theme=dark'],
+            'Content-Type' => ['application/json'],
+        ];
+        $request = $this->factory()->createRequest($this->makeRequest(headers: $headers));
+
+        self::assertSame('abc', $request->cookies->get('sid'));
+        self::assertSame('dark', $request->cookies->get('theme'));
+        self::assertSame('sid=abc; theme=dark', $request->server->get('HTTP_COOKIE'));
+        self::assertSame('application/json', $request->headers->get('content-type'));
+    }
+
+    public function testHeaderNamesWithUnderscoresAreDropped(): void
+    {
+        $headers = [
+            'x-forwarded-for'   => ['198.51.100.1'],
+            'X_Forwarded_For'   => ['6.6.6.6'],
+            'x_only_underscore' => ['1'],
+        ];
+        $request = $this->factory()->createRequest($this->makeRequest(headers: $headers));
+
+        self::assertSame('198.51.100.1', $request->server->get('HTTP_X_FORWARDED_FOR'));
+        self::assertFalse($request->server->has('HTTP_X_ONLY_UNDERSCORE'));
+    }
+
     public function testFormUrlEncodedBodyPopulatesRequestBag(): void
     {
         $rapiraRequest = $this->makeRequest(
@@ -110,10 +164,8 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
 
     public function testMultipartFieldsAndNestedFiles(): void
     {
-        $spoolA = (string) tempnam(sys_get_temp_dir(), 'rapira-upA-');
-        $spoolB = (string) tempnam(sys_get_temp_dir(), 'rapira-upB-');
-        $this->spooledFiles[] = $spoolA;
-        $this->spooledFiles[] = $spoolB;
+        $spoolA = $this->spool();
+        $spoolB = $this->spool();
 
         $fields = [
             new FormField('title', 'Hello', []),
@@ -144,10 +196,33 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
         self::assertSame('deep.txt', $nested['a']['b']->getClientOriginalName());
     }
 
+    public function testUploadOutlivesTheHostSpoolFile(): void
+    {
+        $spool = $this->spool('hello');
+
+        $request = $this->factory()->createRequest($this->makeMultipartRequest([
+            new RapiraUploadedFile('avatar', 'hello.txt', 'text/plain', [], $spool, 5),
+        ]));
+
+        $avatar = $request->files->get('avatar');
+        self::assertInstanceOf(UploadedFile::class, $avatar);
+        self::assertFileDoesNotExist($spool);
+        self::assertStringEqualsFile($avatar->getPathname(), 'hello');
+    }
+
+    public function testEmptyFileWithAFilenameIsNotAnUpload(): void
+    {
+        $request = $this->factory()->createRequest($this->makeMultipartRequest([
+            new RapiraUploadedFile('avatar', 'empty.txt', 'text/plain', [], $this->spool(), 0),
+        ]));
+
+        self::assertTrue($request->files->has('avatar'));
+        self::assertNull($request->files->get('avatar'));
+    }
+
     public function testEmptyFilenamePartIsNotAnUpload(): void
     {
-        $spool = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
-        $this->spooledFiles[] = $spool;
+        $spool = $this->spool();
 
         $files = [
             new RapiraUploadedFile('avatar', '', 'application/octet-stream', [], $spool, 0),
@@ -169,10 +244,8 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
 
     public function testEmptyFilenamePartDoesNotDisturbSiblingUploads(): void
     {
-        $spoolEmpty = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
-        $spoolReal = (string) tempnam(sys_get_temp_dir(), 'rapira-upReal-');
-        $this->spooledFiles[] = $spoolEmpty;
-        $this->spooledFiles[] = $spoolReal;
+        $spoolEmpty = $this->spool();
+        $spoolReal = $this->spool();
 
         $files = [
             new RapiraUploadedFile('images[0][file]', '', 'application/octet-stream', [], $spoolEmpty, 0),
@@ -197,10 +270,8 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
 
     public function testEmptyFilenamePartKeepsListIndicesAligned(): void
     {
-        $spoolEmpty = (string) tempnam(sys_get_temp_dir(), 'rapira-upEmpty-');
-        $spoolReal = (string) tempnam(sys_get_temp_dir(), 'rapira-upReal-');
-        $this->spooledFiles[] = $spoolEmpty;
-        $this->spooledFiles[] = $spoolReal;
+        $spoolEmpty = $this->spool();
+        $spoolReal = $this->spool();
 
         $files = [
             new RapiraUploadedFile('docs[]', '', 'application/octet-stream', [], $spoolEmpty, 0),

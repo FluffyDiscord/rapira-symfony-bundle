@@ -5,6 +5,7 @@ namespace FluffyDiscord\RapiraBundle\Tests\Double;
 use Rapira\Exception\WorkDiscardedException;
 use Rapira\Http\Exception\FileNotSendableException;
 use Rapira\Http\Exchange;
+use Rapira\Http\Multipart;
 use Rapira\Http\Request;
 
 /**
@@ -55,7 +56,7 @@ class RecordingExchange implements Exchange
 
         $this->bodyWrites[] = ['content' => $content, 'eos' => $eos];
         if ($eos) {
-            $this->finalized = true;
+            $this->finalize();
         }
     }
 
@@ -67,7 +68,24 @@ class RecordingExchange implements Exchange
 
         $this->fileSends[] = ['path' => $path, 'offset' => $offset, 'length' => $length, 'eos' => $eos];
         if ($eos) {
-            $this->finalized = true;
+            $this->finalize();
+        }
+    }
+
+    private function finalize(): void
+    {
+        $this->finalized = true;
+
+        $body = $this->request->body;
+        if (!$body instanceof Multipart) {
+            return;
+        }
+
+        foreach ($body->files as $file) {
+            $isSpoolLeft = is_file($file->tmpPath);
+            if ($isSpoolLeft) {
+                unlink($file->tmpPath);
+            }
         }
     }
 

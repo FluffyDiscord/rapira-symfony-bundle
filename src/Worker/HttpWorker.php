@@ -17,6 +17,7 @@ use Symfony\Component\DependencyInjection\ServicesResetterInterface;
 use Symfony\Component\ErrorHandler\ErrorRenderer\HtmlErrorRenderer;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedJsonResponse;
@@ -127,6 +128,10 @@ class HttpWorker
                 $rebooted = true;
             }
         } finally {
+            if ($request !== null) {
+                $this->removeUploadedFiles($request);
+            }
+
             if (!$rebooted) {
                 $this->servicesResetter?->reset();
             }
@@ -154,6 +159,22 @@ class HttpWorker
         if ($eventDispatcher instanceof EventDispatcherInterface) {
             $this->eventDispatcher = $eventDispatcher;
         }
+    }
+
+    private function removeUploadedFiles(Request $request): void
+    {
+        $files = $request->files->all();
+        array_walk_recursive($files, static function (mixed $file): void {
+            if (!$file instanceof UploadedFile) {
+                return;
+            }
+
+            $path = $file->getPathname();
+            $isFileLeft = is_file($path);
+            if ($isFileLeft) {
+                unlink($path);
+            }
+        });
     }
 
     private function createWriter(Response $response, Request $request): ResponseWriter

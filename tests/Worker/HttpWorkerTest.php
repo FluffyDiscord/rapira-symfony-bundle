@@ -11,7 +11,10 @@ use FluffyDiscord\RapiraBundle\Tests\Double\WorkerKernelInterface;
 use FluffyDiscord\RapiraBundle\Tests\RapiraTestCase;
 use FluffyDiscord\RapiraBundle\Worker\HttpWorker;
 use Rapira\Http\Exchange;
+use Rapira\Http\Multipart;
+use Rapira\Http\UploadedFile as RapiraUploadedFile;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\DependencyInjection\Container;
@@ -56,6 +59,32 @@ class HttpWorkerTest extends RapiraTestCase
             self::assertTrue($exchange->isFinalized());
         }
         self::assertSame('body:/a', $exchanges[0]->bodyWrites[0]['content']);
+    }
+
+    public function testUploadsLiveThroughTerminateAndAreRemovedAfterwards(): void
+    {
+        $spool = (string) tempnam(sys_get_temp_dir(), 'rapira-up-');
+        file_put_contents($spool, 'png');
+        $upload = new RapiraUploadedFile('avatar', 'me.png', 'image/png', [], $spool, 3);
+        $exchange = new RecordingExchange($this->makeRequest(method: 'POST', body: new Multipart([], [$upload])));
+
+        $uploadPath = '';
+        $isUploadPresentOnTerminate = false;
+
+        $kernel = $this->createMock(WorkerKernelInterface::class);
+        $kernel->method('handle')->willReturn(new Response('ok'));
+        $kernel->expects(self::once())->method('terminate')->willReturnCallback(static function (Request $request) use (&$uploadPath, &$isUploadPresentOnTerminate): void {
+            $avatar = $request->files->get('avatar');
+            self::assertInstanceOf(UploadedFile::class, $avatar);
+
+            $uploadPath = $avatar->getPathname();
+            $isUploadPresentOnTerminate = is_file($uploadPath);
+        });
+
+        $this->worker($kernel, [$exchange])->start();
+
+        self::assertTrue($isUploadPresentOnTerminate);
+        self::assertFileDoesNotExist($uploadPath);
     }
 
     public function testThrowableWritesFiveHundredAndRebootsKernel(): void
