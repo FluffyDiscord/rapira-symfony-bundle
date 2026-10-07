@@ -22,10 +22,6 @@ class Runtime extends SymfonyRuntime
 
     private function isRapiraDispatcher(): bool
     {
-        if (\PHP_SAPI !== 'rapira') {
-            return false;
-        }
-
         $mode = \Rapira\get_mode();
 
         return $mode === Mode::Dispatcher;
