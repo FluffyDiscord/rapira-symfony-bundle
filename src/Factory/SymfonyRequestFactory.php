@@ -203,13 +203,24 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     {
         $files = [];
         foreach ($uploadedFiles as $uploadedFile) {
-            $symfonyUploadedFile = new UploadedFile(
-                $uploadedFile->tmpPath,
-                $uploadedFile->clientFilename,
-                $uploadedFile->clientMediaType,
-                \UPLOAD_ERR_OK,
-                true,
-            );
+            if ($uploadedFile->size <= 0) {
+                $symfonyUploadedFile = [
+                    'error' => \UPLOAD_ERR_NO_FILE,
+                    'full_path' => '',
+                    'name' => '',
+                    'size' => 0,
+                    'tmp_name' => '',
+                    'type' => $uploadedFile->clientMediaType ?? '',
+                ];
+            } else {
+                $symfonyUploadedFile = new UploadedFile(
+                    $uploadedFile->tmpPath,
+                    $uploadedFile->clientFilename,
+                    $uploadedFile->clientMediaType,
+                    \UPLOAD_ERR_OK,
+                    true,
+                );
+            }
 
             $keys = $this->parseFieldNameKeys($uploadedFile->name);
             $files = $this->insertFile($files, $keys, $symfonyUploadedFile);
@@ -221,9 +232,10 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     /**
      * @param array<array-key, mixed> $files
      * @param list<string> $keys
+     * @param UploadedFile|array{error: int, full_path: string, name: string, size: int, tmp_name: string, type: string} $file
      * @return array<array-key, mixed>
      */
-    private function insertFile(array $files, array $keys, UploadedFile $file): array
+    private function insertFile(array $files, array $keys, UploadedFile|array $file): array
     {
         $key = array_shift($keys);
         if ($key === null) {

@@ -31,5 +31,10 @@
             "symfony/runtime": true,
             "symfony/flex": false
         }
+    },
+    "extra": {
+        "runtime": {
+            "class": "FluffyDiscord\\RapiraBundle\\Runtime\\Runtime"
+        }
     }
 }

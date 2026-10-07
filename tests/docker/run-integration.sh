@@ -63,20 +63,23 @@ if wait_health; then
 
     marker=$(curl -s "${BASE}/" | sed -n 's/.*marker=\([^ ]*\).*/\1/p')
     [ "$marker" = "from-env-runtime" ] && ok "docker -e value wins over .env.local.php (EGPCS)" || bad "marker was '$marker', expected from-env-runtime"
+
+    worker=$(curl -s "${BASE}/" | sed -n 's/.*worker=\([01]\).*/\1/p')
+    [ "$worker" = "1" ] && ok "kernel.runtime_mode.worker on despite APP_RUNTIME_MODE=web=1 in .env.local.php" || bad "worker was '$worker', expected 1"
 else
     bad "dispatcher container never became healthy"
 fi
 
 # ---------------------------------------------------------------------------
-log "IT-101b GPCS still serves in prod (usePutenv survives the mid-request \$_ENV re-import)"
-start -e VARIABLES_ORDER=GPCS
+log "IT-101b GPCS serves in prod, process env still wins over .env.local.php"
+start -e VARIABLES_ORDER=GPCS -e RAPIRA_TEST_MARKER=from-env-gpcs
 if wait_health; then
     code=$(curl -s -o /dev/null -w '%{http_code}' "${BASE}/")
     body=$(curl -s "${BASE}/")
-    { [ "$code" = "200" ] && echo "$body" | grep -q 'OK marker='; } \
-        && ok "GPCS serves 200 in prod (usePutenv, no EGPCS requirement)" || bad "GPCS did not serve cleanly: $code $body"
+    { [ "$code" = "200" ] && echo "$body" | grep -q 'OK marker=from-env-gpcs'; } \
+        && ok "GPCS serves 200 with the docker -e value" || bad "GPCS did not serve cleanly: $code $body"
 else
-    bad "GPCS container never became healthy (usePutenv should make variables_order irrelevant)"
+    bad "GPCS container never became healthy"
 fi
 
 # ---------------------------------------------------------------------------
