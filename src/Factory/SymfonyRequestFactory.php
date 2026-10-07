@@ -226,7 +226,7 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     {
         $files = [];
         foreach ($uploadedFiles as $uploadedFile) {
-            if ($uploadedFile->size <= 0) {
+            if ($uploadedFile->clientFilename === '') {
                 $symfonyUploadedFile = [
                     'error' => \UPLOAD_ERR_NO_FILE,
                     'full_path' => '',

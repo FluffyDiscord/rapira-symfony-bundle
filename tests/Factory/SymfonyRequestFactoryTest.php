@@ -210,14 +210,17 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
         self::assertStringEqualsFile($avatar->getPathname(), 'hello');
     }
 
-    public function testEmptyFileWithAFilenameIsNotAnUpload(): void
+    public function testEmptyFileWithAFilenameIsAValidUpload(): void
     {
         $request = $this->factory()->createRequest($this->makeMultipartRequest([
             new RapiraUploadedFile('avatar', 'empty.txt', 'text/plain', [], $this->spool(), 0),
         ]));
 
-        self::assertTrue($request->files->has('avatar'));
-        self::assertNull($request->files->get('avatar'));
+        $avatar = $request->files->get('avatar');
+        self::assertInstanceOf(UploadedFile::class, $avatar);
+        self::assertSame(\UPLOAD_ERR_OK, $avatar->getError());
+        self::assertSame(0, $avatar->getSize());
+        self::assertSame('empty.txt', $avatar->getClientOriginalName());
     }
 
     public function testEmptyFilenamePartIsNotAnUpload(): void
