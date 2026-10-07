@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end integration tests (IT-101..IT-107) for the Rapira bundle. Builds the integration
+# End-to-end integration tests (IT-101..IT-108) for the Rapira bundle. Builds the integration
 # image, then drives the real Rapira binary over HTTP and asserts behaviour. Requires docker,
 # curl and python3 on the host; the code under test runs entirely inside the container.
 set -u
@@ -135,6 +135,50 @@ if wait_health; then
     echoed=$(curl -s -H 'content-type: application/json' -d '{"name":"Rick"}' "${BASE}/echo-json")
     [ "$echoed" = '{"name":"Rick"}' ] && ok "raw JSON body reaches getContent()" || bad "echo-json was '$echoed'"
     rm -f "$jar"
+else
+    bad "container never became healthy"
+fi
+
+# ---------------------------------------------------------------------------
+log "IT-108  sessions never leak between clients on one worker"
+start
+if wait_health; then
+    jar_a=$(mktemp)
+    jar_b=$(mktemp)
+    anon_headers=$(mktemp)
+
+    anonymous_sees_nothing() {
+        anon=$(curl -s -D "$anon_headers" "${BASE}/session/get")
+        leaked_cookie=$(grep -i '^set-cookie:' "$anon_headers" | grep -e "$id_a" -e "$id_b")
+        [ "$anon" = "marker:anonymous" ] && [ -z "$leaked_cookie" ] && ok "$1" || bad "$1: body '$anon', cookie '$leaked_cookie'"
+    }
+
+    curl -s -c "$jar_a" "${BASE}/session/set/alpha" >/dev/null
+    curl -s -c "$jar_b" "${BASE}/session/set/beta" >/dev/null
+    id_a=$(awk '$6 == "PHPSESSID" { print $7 }' "$jar_a")
+    id_b=$(awk '$6 == "PHPSESSID" { print $7 }' "$jar_b")
+    [ -n "$id_a" ] && [ -n "$id_b" ] && [ "$id_a" != "$id_b" ] && ok "each client gets its own session id" || bad "session ids a='$id_a' b='$id_b'"
+
+    got_a=$(curl -s -b "$jar_a" "${BASE}/session/get")
+    got_b=$(curl -s -b "$jar_b" "${BASE}/session/get")
+    [ "$got_a" = "marker:alpha" ] && [ "$got_b" = "marker:beta" ] && ok "interleaved clients read only their own session" || bad "a read '$got_a', b read '$got_b'"
+
+    curl -s -b "$jar_a" "${BASE}/session/get" >/dev/null
+    anonymous_sees_nothing "anonymous request right after a session request sees no session"
+
+    forged=$(curl -s -b "PHPSESSID=forgedsessionid00000000000000" "${BASE}/session/get")
+    [ "$forged" = "marker:anonymous" ] && ok "unknown session id sees no data" || bad "forged id read '$forged'"
+
+    curl -s -b "$jar_a" "${BASE}/session/echo-set/alpha2" >/dev/null
+    anonymous_sees_nothing "anonymous request after stray echo output sees no session"
+
+    curl -s -b "$jar_a" "${BASE}/session/stream-boom" >/dev/null
+    anonymous_sees_nothing "anonymous request after a crashed session request sees no session"
+
+    got_a=$(curl -s -b "$jar_a" "${BASE}/session/get")
+    [ "$got_a" = "marker:alpha2" ] && ok "client session still works after the crash" || bad "a read '$got_a' after the crash"
+
+    rm -f "$jar_a" "$jar_b" "$anon_headers"
 else
     bad "container never became healthy"
 fi

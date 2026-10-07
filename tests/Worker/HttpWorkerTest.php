@@ -129,6 +129,7 @@ class HttpWorkerTest extends RapiraTestCase
         $rebootedContainer->set('services_resetter', $rebootedResetter);
 
         $liveContainer = $bootContainer;
+        $bootResetCountAtReboot = 0;
 
         $kernel = $this->createMock(WorkerKernelInterface::class);
         $kernel->method('handle')->willReturnCallback(static function (Request $request): Response {
@@ -138,7 +139,8 @@ class HttpWorkerTest extends RapiraTestCase
 
             return new Response('ok');
         });
-        $kernel->expects(self::once())->method('reboot')->willReturnCallback(static function () use (&$liveContainer, $rebootedContainer): void {
+        $kernel->expects(self::once())->method('reboot')->willReturnCallback(static function () use (&$liveContainer, &$bootResetCountAtReboot, $rebootedContainer, $bootResetter): void {
+            $bootResetCountAtReboot = $bootResetter->resetCount;
             $liveContainer = $rebootedContainer;
         });
         $kernel->method('getContainer')->willReturnCallback(static function () use (&$liveContainer): Container {
@@ -153,8 +155,29 @@ class HttpWorkerTest extends RapiraTestCase
 
         $this->worker($kernel, $exchanges, $bootResetter)->start();
 
-        self::assertSame(1, $bootResetter->resetCount, 'the boot container is reset while it is the live one');
+        self::assertSame(2, $bootResetCountAtReboot, 'the failed request is reset before the reboot drops its container');
+        self::assertSame(2, $bootResetter->resetCount, 'the boot container is reset while it is the live one');
         self::assertSame(1, $rebootedResetter->resetCount, 'the rebooted container is reset once the reboot replaced it');
+    }
+
+    public function testStrayOutputIsDroppedAndBuffersAreRestored(): void
+    {
+        $kernel = $this->createStub(WorkerKernelInterface::class);
+        $kernel->method('handle')->willReturnCallback(static function (): Response {
+            echo 'stray-output';
+            ob_start();
+            echo 'unclosed-buffer';
+
+            return new Response('ok');
+        });
+
+        $exchange = new RecordingExchange($this->makeRequest());
+        $outputBufferLevel = ob_get_level();
+
+        $this->worker($kernel, [$exchange])->start();
+
+        self::assertSame($outputBufferLevel, ob_get_level());
+        self::assertSame('ok', $exchange->bodyWrites[0]['content']);
     }
 
     public function testWorkerEventsAfterARebootReachTheNewContainersDispatcher(): void

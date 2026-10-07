@@ -83,11 +83,14 @@ class HttpWorker
 
     private function handleExchange(Exchange $exchange): void
     {
-        $rebooted = false;
+        $failed = false;
         $rapiraRequest = null;
         $request = null;
         $response = null;
         $writer = null;
+
+        $outputBufferLevel = ob_get_level();
+        ob_start();
 
         try {
             $this->sentryHub?->pushScope();
@@ -121,19 +124,20 @@ class HttpWorker
                 $this->writeErrorResponse($exchange, $throwable);
             }
 
-            if ($this->kernel instanceof RebootableInterface) {
-                $this->kernel->reboot(null);
-                $this->rebindToCurrentContainer();
-
-                $rebooted = true;
-            }
+            $failed = true;
         } finally {
+            $this->dropStrayOutput($outputBufferLevel);
+
             if ($request !== null) {
                 $this->removeUploadedFiles($request);
             }
 
-            if (!$rebooted) {
-                $this->servicesResetter?->reset();
+            $this->servicesResetter?->reset();
+
+            $isRebootable = $this->kernel instanceof RebootableInterface;
+            if ($failed && $isRebootable) {
+                $this->kernel->reboot(null);
+                $this->rebindToCurrentContainer();
             }
 
             $this->sentryHub?->getClient()?->flush();
@@ -158,6 +162,17 @@ class HttpWorker
         $eventDispatcher = $container->has('event_dispatcher') ? $container->get('event_dispatcher') : null;
         if ($eventDispatcher instanceof EventDispatcherInterface) {
             $this->eventDispatcher = $eventDispatcher;
+        }
+    }
+
+    private function dropStrayOutput(int $outputBufferLevel): void
+    {
+        while (ob_get_level() > $outputBufferLevel) {
+            $strayOutput = ob_get_clean();
+            $hasStrayOutput = \is_string($strayOutput) && $strayOutput !== '';
+            if ($hasStrayOutput) {
+                $this->log('dropped output printed outside the response: ' . $strayOutput);
+            }
         }
     }
 
