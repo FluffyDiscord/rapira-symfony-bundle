@@ -87,6 +87,24 @@ Full sample: [`rapira.toml`](rapira.toml).
 | dev  | `classic`    | picked up on the next request |
 | prod | `dispatcher` | restart Rapira                |
 
+`rapira.dev.toml`:
+
+```toml
+[http]
+listen = "0.0.0.0:8000"
+
+[http.pool]
+entrypoint = "public/index.php"
+mode = "classic"
+processes = 2
+```
+
+```shell
+rapira serve rapira.dev.toml
+```
+
+> Leave out `[http.uploads]` here. Rapira won't start with it outside `dispatcher` mode.
+
 ## Configuration
 
 `config/packages/rapira.yaml`
