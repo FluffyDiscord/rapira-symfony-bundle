@@ -12,7 +12,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 - [Uploads](#uploads) — plain `UploadedFile`s
 - [Graceful error handling](#error-handling) — kernel reboot after a crash, real `500` responses
 - [Sentry](#sentry) — one scope per request
-- [PostgreSQL preconnect](#configuration)
+- [Database connections](#database-connections) — keep opened and usable across requests 
 - [xhprof profiling](#configuration)
 - [libvips cache limit](#configuration)
 
@@ -118,6 +118,8 @@ rapira:
         manifest_path: ~
     doctrine:
         preconnect: false
+    session:
+        keep_connection: true
     profiling:
         xhprof:
             enabled: false
@@ -135,7 +137,8 @@ rapira:
 | `warmup.learn` | `true` | Record which classes and cache files real responses load, replay them at every later worker boot. |
 | `warmup.learn_requests` | `30` | Stop recording after this many responses per worker. |
 | `warmup.manifest_path` | `null` | `null` = `<kernel.cache_dir>/rapira/warmup.manifest.json`. Point outside the cache dir to keep learning across deploys. |
-| `doctrine.preconnect` | `false` | Open PostgreSQL connections at worker boot. Needs `doctrine/dbal`. |
+| `doctrine.preconnect` | `false` | Open PostgreSQL/MySQL/MariaDB connections at worker boot, check them at every request start. Needs `doctrine/dbal`. See [Database connections](#database-connections). |
+| `session.keep_connection` | `true` | Keep the `PdoSessionHandler` connection open between requests; reconnect and retry when it dies. |
 | `profiling.xhprof.enabled` | `false` | `true` = profile every request. `auto` = when `ext-xhprof` is loaded and `kernel.debug` is on. |
 | `profiling.xhprof.output_dir` | `null` | `null` = ini `xhprof.output_dir`, then `<sys_get_temp_dir>/xhprof`. |
 | `vips.enabled` | `auto` | Cap libvips's process-wide cache at worker boot. `auto` = when `jcupitt/vips` is installed. |
@@ -233,6 +236,37 @@ composer require sentry/sentry-symfony
 ```
 
 Configure as usual.
+
+## Database connections
+
+**Each worker keeps one connection per Doctrine connection plus one for sessions if using PDO sessions, and replaces them when the server drops them.** PostgreSQL, MySQL and MariaDB.
+
+| | Stock Symfony | This bundle |
+|---|---|---|
+| Doctrine connection | opened on first query | `doctrine.preconnect: true` → opened at worker boot |
+| Doctrine, server dropped the connection | first query of the next request fails | `SELECT 1` at request start → reconnect before your code runs |
+| `PdoSessionHandler` | new connection every request | one persistent connection per worker |
+| `PdoSessionHandler`, server dropped the connection | session request fails | reconnect, re-run the failed query, carry on |
+| `PdoSessionHandler::LOCK_ADVISORY`, failed request | lock dies with the connection | lock released before the retry |
+
+Turn off DoctrineBundle's idle timeout. Otherwise it closes the connection 10 minutes after connecting:
+
+`config/packages/doctrine.yaml`
+
+```diff
+ doctrine:
+     dbal:
+         url: '%env(resolve:DATABASE_URL)%'
++        idle_connection_ttl: 0
+```
+
+Sessions are covered when `framework.session.handler_id` is a DSN (`'%env(DATABASE_URL)%'`) or your own `PdoSessionHandler` service built from a DSN.
+
+> Pass a DSN, not a `\PDO` instance. The bundle can't reopen a `\PDO` you created.
+
+Not covered:
+
+- a connection that dies mid-request in Doctrine — DBAL reconnects on the next query, the failed query isn't retried
 
 ## Events
 

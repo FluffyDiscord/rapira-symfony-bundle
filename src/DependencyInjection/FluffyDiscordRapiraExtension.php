@@ -8,6 +8,7 @@ use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFailedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestReceivedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerResponseSentEvent;
 use FluffyDiscord\RapiraBundle\Profiling\XhprofRequestProfiler;
+use FluffyDiscord\RapiraBundle\Session\ReconnectingSessionHandlerFactory;
 use FluffyDiscord\RapiraBundle\Vips\VipsCacheLimiter;
 use FluffyDiscord\RapiraBundle\Warmup\ContainerPreloadWarmer;
 use FluffyDiscord\RapiraBundle\Warmup\DoctrineWarmer;
@@ -44,7 +45,7 @@ class FluffyDiscordRapiraExtension extends Extension
     public function load(array $configs, ContainerBuilder $container): void
     {
         $configuration = new Configuration();
-        /** @var array{warmup: array{enabled: bool, learn: bool, learn_requests: int, manifest_path: ?string}, doctrine: array{preconnect: bool}, profiling: array{xhprof: array{enabled: string|bool, output_dir: ?string}}, vips: array{enabled: string|bool, max_operations: int, max_memory_mb: int, max_files: int}} $config */
+        /** @var array{warmup: array{enabled: bool, learn: bool, learn_requests: int, manifest_path: ?string}, doctrine: array{preconnect: bool}, session: array{keep_connection: bool}, profiling: array{xhprof: array{enabled: string|bool, output_dir: ?string}}, vips: array{enabled: string|bool, max_operations: int, max_memory_mb: int, max_files: int}} $config */
         $config = $this->processConfiguration($configuration, $configs);
 
         $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
@@ -57,6 +58,10 @@ class FluffyDiscordRapiraExtension extends Extension
         $dbalInstalled = class_exists(\Doctrine\DBAL\Connection::class);
         if ($dbalInstalled && $config['doctrine']['preconnect']) {
             $this->registerDoctrinePreconnect($container);
+        }
+
+        if ($config['session']['keep_connection']) {
+            $container->setDefinition(ReconnectingSessionHandlerFactory::class, new Definition(ReconnectingSessionHandlerFactory::class));
         }
 
         $this->registerXhprofProfiling($container, $config['profiling']['xhprof']);
@@ -191,6 +196,7 @@ class FluffyDiscordRapiraExtension extends Extension
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]);
         $definition->addTag('kernel.event_listener', ['event' => WorkerBootingEvent::class, 'method' => '__invoke']);
+        $definition->addTag('kernel.event_listener', ['event' => WorkerRequestReceivedEvent::class, 'method' => 'onRequestReceived']);
         $container->setDefinition(DoctrinePreconnectListener::class, $definition);
     }
 

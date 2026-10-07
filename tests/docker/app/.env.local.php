@@ -6,4 +6,6 @@ return [
     'APP_RUNTIME_MODE' => 'web=1',
     'APP_SECRET' => 'integration-test-secret',
     'RAPIRA_TEST_MARKER' => 'from-dotenv',
+    'DATABASE_URL' => 'postgresql://app:app@db:5432/app?serverVersion=17&charset=utf8',
+    'SESSION_DSN' => 'postgresql://app:app@db:5432/sessions',
 ];

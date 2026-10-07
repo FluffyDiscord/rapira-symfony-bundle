@@ -13,7 +13,7 @@ ARG PHP_SHA256=f5c0ac99b85b3d677de475c2e4f509f9b4f54663f3ee5a84d6d9481a521d4100
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl build-essential pkg-config autoconf bison re2c \
-        libxml2-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libonig-dev zlib1g-dev libicu-dev \
+        libxml2-dev libssl-dev libcurl4-openssl-dev libsqlite3-dev libonig-dev zlib1g-dev libicu-dev libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/php
@@ -31,7 +31,7 @@ RUN ./configure \
         --enable-filter --enable-fileinfo --enable-phar --enable-posix --enable-pcntl \
         --with-openssl --with-curl --with-zlib --with-pcre-jit --with-iconv \
         --enable-dom --enable-xml --enable-simplexml --enable-xmlreader --enable-xmlwriter \
-        --enable-intl --with-pdo-sqlite --with-sqlite3 \
+        --enable-intl --with-pdo-sqlite --with-sqlite3 --with-pdo-pgsql --with-pdo-mysql \
     && make -j"$(nproc)" && make install \
     && mkdir -p /usr/local/etc/php/conf.d
 
@@ -39,7 +39,7 @@ RUN ./configure \
 FROM debian:trixie-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libxml2 libssl3t64 libcurl4t64 libsqlite3-0 libonig5 zlib1g libicu76 ca-certificates git unzip \
+        libxml2 libssl3t64 libcurl4t64 libsqlite3-0 libonig5 zlib1g libicu76 libpq5 ca-certificates git unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=php-build /usr/local/ /usr/local/
@@ -58,7 +58,9 @@ COPY tests/docker/app /app
 
 WORKDIR /app
 RUN composer install --no-interaction --no-progress --no-dev \
-    && APP_ENV=prod php bin/console cache:warmup
+    && APP_ENV=prod php bin/console cache:warmup \
+    && APP_ENV=db php bin/console cache:warmup \
+    && APP_ENV=db_advisory php bin/console cache:warmup
 
 COPY tests/docker/integration-entrypoint.sh /usr/local/bin/integration-entrypoint.sh
 RUN chmod +x /usr/local/bin/integration-entrypoint.sh \

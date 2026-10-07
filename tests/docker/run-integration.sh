@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end integration tests (IT-101..IT-108) for the Rapira bundle. Builds the integration
+# End-to-end integration tests (IT-101..IT-109) for the Rapira bundle. Builds the integration
 # image, then drives the real Rapira binary over HTTP and asserts behaviour. Requires docker,
 # curl and python3 on the host; the code under test runs entirely inside the container.
 set -u
@@ -230,6 +230,189 @@ if wait_health; then
 else
     bad "container never became healthy"
 fi
+
+# ---------------------------------------------------------------------------
+# IT-109: one long-lived database connection per worker, replaced when the server drops it.
+DB_NET="rapira-it-db"
+DB_CID=""
+DB_KIND=""
+
+db_cleanup() {
+    [ -n "$DB_CID" ] && docker rm -f "$DB_CID" >/dev/null 2>&1
+    DB_CID=""
+    docker network rm "$DB_NET" >/dev/null 2>&1 || true
+}
+trap 'cleanup; db_cleanup' EXIT
+
+db_sql() {
+    if [ "$DB_KIND" = "pgsql" ]; then
+        docker exec "$DB_CID" psql -U app -d app -tAc "$1" 2>/dev/null
+    else
+        docker exec "$DB_CID" mariadb -uroot -proot -N -e "$1" 2>/dev/null
+    fi
+}
+
+start_db() {
+    DB_KIND="$1"
+    db_cleanup
+    docker network create "$DB_NET" >/dev/null
+    if [ "$DB_KIND" = "pgsql" ]; then
+        DB_CID=$(docker run -d --network "$DB_NET" --network-alias db \
+            -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app postgres:17-alpine)
+    else
+        DB_CID=$(docker run -d --network "$DB_NET" --network-alias db \
+            -e MARIADB_ROOT_PASSWORD=root -e MARIADB_USER=app -e MARIADB_PASSWORD=app -e MARIADB_DATABASE=app mariadb:11)
+    fi
+    # The images restart the server once after init; wait for a query to succeed twice in a row.
+    for _ in $(seq 1 90); do
+        db_sql "SELECT 1" >/dev/null && sleep 1 && db_sql "SELECT 1" >/dev/null && break
+        sleep 1
+    done
+    if [ "$DB_KIND" = "pgsql" ]; then
+        db_sql "CREATE DATABASE sessions" >/dev/null
+        docker exec "$DB_CID" psql -U app -d sessions -tAc "CREATE TABLE sessions (sess_id VARCHAR(128) NOT NULL PRIMARY KEY, sess_data BYTEA NOT NULL, sess_lifetime INTEGER NOT NULL, sess_time INTEGER NOT NULL)" >/dev/null
+    else
+        db_sql "CREATE DATABASE sessions; GRANT ALL ON sessions.* TO 'app'@'%'; CREATE TABLE sessions.sessions (sess_id VARBINARY(128) NOT NULL PRIMARY KEY, sess_data LONGBLOB NOT NULL, sess_lifetime INTEGER UNSIGNED NOT NULL, sess_time INTEGER UNSIGNED NOT NULL) COLLATE utf8mb4_bin, ENGINE = InnoDB" >/dev/null
+    fi
+}
+
+session_backends() {
+    if [ "$DB_KIND" = "pgsql" ]; then
+        db_sql "SELECT pid FROM pg_stat_activity WHERE datname = 'sessions' ORDER BY pid" | tr '\n' ' '
+    else
+        db_sql "SELECT ID FROM information_schema.PROCESSLIST WHERE DB = 'sessions' ORDER BY ID" | tr '\n' ' '
+    fi
+}
+
+kill_backend() {
+    if [ "$DB_KIND" = "pgsql" ]; then
+        db_sql "SELECT pg_terminate_backend($1)" >/dev/null
+    else
+        db_sql "KILL $1" >/dev/null
+    fi
+}
+
+kill_session_backends() {
+    for backend in $(session_backends); do kill_backend "$backend"; done
+    sleep 0.5
+}
+
+db_backend() { curl -s "${BASE}/db/backend" | sed -n 's/^backend:\([0-9]*\)$/\1/p'; }
+
+session_id() { awk '$6 == "PHPSESSID" { print $7 }' "$1"; }
+
+held_advisory_locks() {
+    if [ "$DB_KIND" = "pgsql" ]; then
+        db_sql "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted"
+    else
+        db_sql "SELECT COUNT(IS_USED_LOCK('$1'))"
+    fi
+}
+
+rename_sessions_table() {
+    if [ "$DB_KIND" = "pgsql" ]; then
+        docker exec "$DB_CID" psql -U app -d sessions -tAc "ALTER TABLE $1 RENAME TO $2" >/dev/null
+    else
+        db_sql "RENAME TABLE sessions.$1 TO sessions.$2" >/dev/null
+    fi
+}
+
+advisory_lock_suite() {
+    local jar="$1" tmp="$2" sid
+    sid=$(session_id "$jar")
+
+    ( curl -s -b "$jar" "${BASE}/session/slow-set/gamma" > "$tmp" ) &
+    slow_pid=$!
+    sleep 1
+    during=$(held_advisory_locks "$sid")
+    wait "$slow_pid" 2>/dev/null || true
+    after=$(held_advisory_locks "$sid")
+    [ "$during" = "1" ] && [ "$after" = "0" ] && ok "advisory lock held during the request, released after it" || bad "advisory locks during=$during after=$after"
+
+    ( curl -s -b "$jar" -w '\n%{http_code}' "${BASE}/session/slow-set/delta" > "$tmp" ) &
+    slow_pid=$!
+    sleep 1
+    rename_sessions_table sessions sessions_off
+    wait "$slow_pid" 2>/dev/null || true
+    rename_sessions_table sessions_off sessions
+    failed_code=$(tail -1 "$tmp")
+    leftover=$(held_advisory_locks "$sid")
+    [ "$failed_code" = "500" ] && [ "$leftover" = "0" ] && ok "failed session write on a live connection leaves no advisory lock behind" || bad "after failed write: code=$failed_code leftover locks=$leftover"
+
+    rename_sessions_table sessions sessions_off
+    failed_code=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" "${BASE}/session/get")
+    leftover=$(held_advisory_locks "$sid")
+    rename_sessions_table sessions_off sessions
+    [ "$failed_code" = "500" ] && [ "$leftover" = "0" ] && ok "failed session read on a live connection leaves no advisory lock behind" || bad "after failed read: code=$failed_code leftover locks=$leftover"
+
+    got=$(curl -s -m 5 -b "$jar" "${BASE}/session/get")
+    [ "$got" = "marker:gamma" ] && ok "session usable after the failed read and write" || bad "after failed read and write read '$got'"
+}
+
+db_suite() {
+    local kind="$1" app_env="$2" database_url="$3" session_dsn="$4"
+    log "IT-109  ${kind} (${app_env}): one long-lived Doctrine and session connection, replaced when the server drops it"
+    start_db "$kind"
+    start --network "$DB_NET" -e APP_ENV="$app_env" -e DATABASE_URL="$database_url" -e SESSION_DSN="$session_dsn"
+    if ! wait_health; then
+        bad "container never became healthy"
+        docker logs "$CID" 2>&1 | tail -20
+        return
+    fi
+
+    b1=$(db_backend); b2=$(db_backend); b3=$(db_backend)
+    [ -n "$b1" ] && [ "$b1" = "$b2" ] && [ "$b2" = "$b3" ] && ok "Doctrine keeps one connection across requests ($b1)" || bad "Doctrine backends '$b1' '$b2' '$b3'"
+
+    kill_backend "$b3"; sleep 0.5
+    resp=$(curl -s -w '\n%{http_code}' "${BASE}/db/backend")
+    code=$(printf '%s' "$resp" | tail -1)
+    b4=$(printf '%s' "$resp" | head -1 | sed -n 's/^backend:\([0-9]*\)$/\1/p')
+    [ "$code" = "200" ] && [ -n "$b4" ] && [ "$b4" != "$b3" ] && ok "killed Doctrine connection replaced before the request ($b3 -> $b4)" || bad "after kill: code=$code backend='$b4' resp='$resp'"
+
+    jar=$(mktemp)
+    curl -s -c "$jar" "${BASE}/session/set/alpha" >/dev/null
+    s1=$(session_backends)
+    curl -s -b "$jar" "${BASE}/session/get" >/dev/null
+    curl -s -b "$jar" "${BASE}/session/get" >/dev/null
+    s2=$(session_backends)
+    [ "$(echo "$s1" | wc -w)" = "1" ] && [ "$s1" = "$s2" ] && ok "session keeps one connection across requests ($s1)" || bad "session backends '$s1' then '$s2'"
+
+    kill_session_backends
+    got=$(curl -s -b "$jar" "${BASE}/session/get")
+    [ "$got" = "marker:alpha" ] && ok "session read survives a killed connection" || bad "after kill read '$got'"
+
+    tmp=$(mktemp)
+    ( curl -s -b "$jar" -w '\n%{http_code}' "${BASE}/session/slow-set/beta" > "$tmp" ) &
+    slow_pid=$!
+    sleep 1
+    kill_session_backends
+    wait "$slow_pid" 2>/dev/null || true
+    slow_code=$(tail -1 "$tmp")
+    got=$(curl -s -b "$jar" "${BASE}/session/get")
+    [ "$slow_code" = "200" ] && [ "$got" = "marker:beta" ] && ok "session write survives a connection killed mid-request" || bad "mid-request kill: code=$slow_code then read '$got'"
+
+    s3=$(session_backends)
+    [ "$(echo "$s3" | wc -w)" = "1" ] && ok "still one session connection after reconnects ($s3)" || bad "session backends after reconnects '$s3'"
+
+    if [ "$app_env" = "db_advisory" ]; then
+        advisory_lock_suite "$jar" "$tmp"
+    fi
+
+    if [ "$FAIL" != "0" ]; then docker logs "$CID" 2>&1 | tail -20; fi
+    rm -f "$jar" "$tmp"
+    cleanup
+    db_cleanup
+}
+
+PG_DATABASE_URL="postgresql://app:app@db:5432/app?serverVersion=17&charset=utf8"
+PG_SESSION_DSN="postgresql://app:app@db:5432/sessions"
+MARIA_DATABASE_URL="mysql://app:app@db:3306/app?serverVersion=11.8.2-MariaDB&charset=utf8mb4"
+MARIA_SESSION_DSN="mysql://app:app@db:3306/sessions"
+
+db_suite pgsql db "$PG_DATABASE_URL" "$PG_SESSION_DSN"
+db_suite mariadb db "$MARIA_DATABASE_URL" "$MARIA_SESSION_DSN"
+db_suite pgsql db_advisory "$PG_DATABASE_URL" "$PG_SESSION_DSN"
+db_suite mariadb db_advisory "$MARIA_DATABASE_URL" "$MARIA_SESSION_DSN"
 
 # ---------------------------------------------------------------------------
 log "Integration summary: ${PASS} passed, ${FAIL} failed"
