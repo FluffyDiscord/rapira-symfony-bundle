@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=php-build /usr/local/ /usr/local/
-COPY --from=ghcr.io/rapira-rs/rapira:nightly-php8.5@sha256:7187f4eec2b984918de816d38468ddd8e1f29bf5aac74e656f5cc989bcb1d649 /usr/local/bin/rapira /usr/local/bin/rapira
+COPY --from=ghcr.io/rapira-rs/rapira:0.9.1-php8.5@sha256:80ff2b14f73a2490c1eb40e6489e8a209fab8355f29a4345f6eb65cd72aaaab6 /usr/local/bin/rapira /usr/local/bin/rapira
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 RUN printf 'opcache.enable=1\nopcache.enable_cli=1\nmemory_limit=256M\nvariables_order = "EGPCS"\n' > /usr/local/etc/php/php.ini \
