@@ -11,7 +11,7 @@
     ],
     "require": {
         "php": ">=8.4",
-        "rapira/contract": "dev-master",
+        "rapira/contract": "^0.9.1",
         "psr/log": "^3",
         "symfony/dependency-injection": "^7.4 || ^8",
         "symfony/error-handler": "^7.4 || ^8",
@@ -53,8 +53,7 @@
     "autoload-dev": {
         "psr-4": {
             "FluffyDiscord\\RapiraBundle\\Tests\\": "tests/"
-        },
-        "symfony/runtime": true
+        }
     },
     "config": {
         "allow-plugins": {

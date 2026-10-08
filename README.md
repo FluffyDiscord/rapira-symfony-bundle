@@ -19,7 +19,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 ## Requirements
 
 - PHP >= 8.4
-- Rapira nightly — needs boot-time `$_SERVER` ([rapira#129](https://github.com/rapira-rs/rapira/issues/129))
+- Rapira >= 0.9.1
 - Symfony `^7.4 || ^8`
 
 ## Installation
