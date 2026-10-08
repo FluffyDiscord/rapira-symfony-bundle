@@ -10,7 +10,8 @@
         "symfony/dotenv": "^7.4 || ^8",
         "fluffydiscord/rapira-symfony-bundle": "@dev",
         "doctrine/dbal": "^4",
-        "doctrine/doctrine-bundle": "^2.13 || ^3"
+        "doctrine/doctrine-bundle": "^2.13 || ^3",
+        "symfony/web-link": "^7.4 || ^8"
     },
     "repositories": [
         {

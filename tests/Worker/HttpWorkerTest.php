@@ -160,6 +160,44 @@ class HttpWorkerTest extends RapiraTestCase
         self::assertSame(1, $rebootedResetter->resetCount, 'the rebooted container is reset once the reboot replaced it');
     }
 
+    public function testEarlyHintsAreWrittenAsAnInformationalHeadBeforeTheResponse(): void
+    {
+        $kernel = $this->createStub(WorkerKernelInterface::class);
+        $kernel->method('handle')->willReturnCallback(static function (): Response {
+            $hints = new Response();
+            $hints->headers->set('Link', '</style.css>; rel=preload; as=style');
+            $hints->sendHeaders(103);
+
+            return new Response('page');
+        });
+
+        $exchange = new RecordingExchange($this->makeRequest());
+
+        $this->worker($kernel, [$exchange])->start();
+
+        self::assertSame(103, $exchange->heads[0]['status']);
+        self::assertSame(['</style.css>; rel=preload; as=style'], $exchange->heads[0]['headers']['Link']);
+        self::assertSame(200, $exchange->heads[1]['status']);
+        self::assertSame('page', $exchange->bodyWrites[0]['content']);
+    }
+
+    public function testEarlyHintsOutsideAnExchangeAreSkipped(): void
+    {
+        $kernel = $this->createStub(WorkerKernelInterface::class);
+        $kernel->method('handle')->willReturn(new Response('page'));
+
+        $exchange = new RecordingExchange($this->makeRequest());
+
+        $this->worker($kernel, [$exchange])->start();
+
+        $hints = new Response();
+        $hints->headers->set('Link', '</style.css>; rel=preload; as=style');
+        $hints->sendHeaders(103);
+
+        self::assertNull(HttpWorker::$currentExchange);
+        self::assertCount(1, $exchange->heads);
+    }
+
     public function testStrayOutputIsDroppedAndBuffersAreRestored(): void
     {
         $kernel = $this->createStub(WorkerKernelInterface::class);

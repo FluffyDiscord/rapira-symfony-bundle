@@ -9,6 +9,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 - [HTTP worker](#usage) — kernel boots once, `services_resetter` runs *after* the response
 - [Worker warmup](#worker-warmup) — zero-config; first request at steady-state speed
 - [Streaming](#responsefile-streaming) — `StreamedResponse`, `StreamedJsonResponse`, `BinaryFileResponse`
+- [Early Hints](#early-hints-103) — browser starts loading CSS/JS while the page renders
 - [Uploads](#uploads) — plain `UploadedFile`s
 - [Graceful error handling](#error-handling) — kernel reboot after a crash, real `500` responses
 - [Sentry](#sentry) — one scope per request
@@ -190,6 +191,19 @@ Autoconfigured. Or listen to `WorkerBootingEvent`.
 ```
 
 `BinaryFileResponse` inside the `[http.sendfile]` root → Rapira sends it straight from disk. Outside it, or with `deleteFileAfterSend()` → streamed through PHP.
+
+## Early Hints (103)
+
+`sendEarlyHints()` sends a real `103` response in dispatcher mode. See [Symfony docs](https://symfony.com/doc/current/web_link.html#early-hints).
+
+```shell
+composer require symfony/web-link
+```
+
+> Rapira 0.9.1 drops `103` responses before they reach the client ([rapira#126](https://github.com/rapira-rs/rapira/issues/126)). Calling `sendEarlyHints()` is safe; the page is served as usual.
+
+- Each call sends its own `103`. The final response sends its own headers, so a header changed after the `103` reaches the client with its final value only.
+- Classic mode → no `103`, page served as usual.
 
 ## Request data
 

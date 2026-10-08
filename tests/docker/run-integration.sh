@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end integration tests (IT-101..IT-109) for the Rapira bundle. Builds the integration
+# End-to-end integration tests (IT-101..IT-110) for the Rapira bundle. Builds the integration
 # image, then drives the real Rapira binary over HTTP and asserts behaviour. Requires docker,
 # curl and python3 on the host; the code under test runs entirely inside the container.
 set -u
@@ -230,6 +230,46 @@ if wait_health; then
 else
     bad "container never became healthy"
 fi
+
+# ---------------------------------------------------------------------------
+log "IT-110  Early Hints: sendEarlyHints() sends a 103 before the response"
+hints_headers=$(mktemp)
+start
+if wait_health; then
+    # A streamed response first: its flush() must not leave the worker unable to send hints.
+    curl -s -o /dev/null "${BASE}/stream"
+
+    sapi_counts=""
+    for _ in 1 2 3; do
+        body=$(curl -s -D "$hints_headers" "${BASE}/early-hints")
+        sapi_counts="${sapi_counts}$(printf '%s' "$body" | sed -n 's/.*sapi_headers=\([0-9]*\).*/\1/p') "
+    done
+    statuses=$(tr -d '\r' < "$hints_headers" | awk '/^HTTP\// {print $2}' | tr '\n' ' ')
+    hint_block=$(tr -d '\r' < "$hints_headers" | sed '/^$/q')
+    # The first request still carries PHP's boot-time X-Powered-By; steady state starts at the second.
+    distinct_counts=$(echo "$sapi_counts" | tr ' ' '\n' | grep -v '^$' | tail -n +2 | sort -u | wc -l)
+
+    [ "$statuses" = "103 200 " ] && ok "103 then 200, after a streamed response on the same worker" || bad "statuses: ${statuses}"
+    echo "$hint_block" | head -1 | grep -q '^HTTP/[0-9.]* 103' \
+        && echo "$hint_block" | grep -qi '^link: </style.css>; rel="preload"; as="style"$' \
+        && ok "103 carries the Link hint" || bad "first head block: ${hint_block}"
+    echo "$body" | grep -q '^hinted' && ok "final body served" || bad "body: ${body}"
+    [ "$distinct_counts" = "1" ] && ok "SAPI header list does not grow across requests (${sapi_counts})" || bad "SAPI header list grows: ${sapi_counts}"
+else
+    bad "container never became healthy"
+fi
+
+log "IT-110b Early Hints in classic mode: no 103, page still served"
+start -e RAPIRA_CONFIG=/app/rapira-classic.toml
+if wait_health; then
+    body=$(curl -s -D "$hints_headers" "${BASE}/early-hints")
+    statuses=$(tr -d '\r' < "$hints_headers" | awk '/^HTTP\// {print $2}' | tr '\n' ' ')
+    [ "$statuses" = "200 " ] && ok "classic mode answers 200 without a 103" || bad "statuses: ${statuses}"
+    echo "$body" | grep -q '^hinted' && ok "classic body served" || bad "body: ${body}"
+else
+    bad "classic container never became healthy"
+fi
+rm -f "$hints_headers"
 
 # ---------------------------------------------------------------------------
 # IT-109: one long-lived database connection per worker, replaced when the server drops it.

@@ -28,6 +28,8 @@ use Symfony\Component\HttpKernel\TerminableInterface;
 
 class HttpWorker
 {
+    public static ?Exchange $currentExchange = null;
+
     public function __construct(
         private readonly KernelInterface            $kernel,
         private EventDispatcherInterface            $eventDispatcher,
@@ -46,6 +48,11 @@ class HttpWorker
 
         $pid = getmypid();
         $this->log(sprintf('rapira dispatcher worker started, pid %d', $pid === false ? 0 : $pid));
+
+        $hasHeadersSend = \function_exists('headers_send');
+        if (!$hasHeadersSend) {
+            require_once __DIR__ . '/../Resources/headers_send_polyfill.php';
+        }
 
         $this->kernel->boot();
         $this->preloadResponseClasses();
@@ -93,6 +100,7 @@ class HttpWorker
         ob_start();
 
         try {
+            self::$currentExchange = $exchange;
             $this->sentryHub?->pushScope();
 
             $rapiraRequest = $exchange->getRequest();
@@ -126,6 +134,8 @@ class HttpWorker
 
             $failed = true;
         } finally {
+            self::$currentExchange = null;
+            header_remove();
             $this->dropStrayOutput($outputBufferLevel);
 
             if ($request !== null) {
