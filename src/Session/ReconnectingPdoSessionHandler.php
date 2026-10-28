@@ -45,7 +45,7 @@ class ReconnectingPdoSessionHandler extends PdoSessionHandler
 
     public function read(#[\SensitiveParameter] string $sessionId): string
     {
-        return $this->callWithReconnect(fn(PdoSessionHandler $handler): string => $handler->read($sessionId));
+        return $this->callWithReconnect(fn(PdoSessionHandler $handler): string => $this->readOrEmpty($handler, $sessionId));
     }
 
     public function write(#[\SensitiveParameter] string $sessionId, string $data): bool
@@ -116,6 +116,19 @@ class ReconnectingPdoSessionHandler extends PdoSessionHandler
 
             throw $exception;
         }
+    }
+
+    /**
+     * Symfony 7.4's PdoSessionHandler::read() may return false; 8.x always returns a string.
+     */
+    private function readOrEmpty(PdoSessionHandler $handler, string $sessionId): string
+    {
+        $data = $handler->read($sessionId);
+        if ($data === false) {
+            return '';
+        }
+
+        return $data;
     }
 
     private function reconnect(): bool

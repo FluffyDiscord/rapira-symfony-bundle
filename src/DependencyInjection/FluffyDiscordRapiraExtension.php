@@ -83,6 +83,7 @@ class FluffyDiscordRapiraExtension extends Extension
             $vipsConfig['max_operations'],
             $maxMemoryBytes,
             $vipsConfig['max_files'],
+            $vipsConfig['enabled'] === true,
         ]);
         $definition->addTag('kernel.event_listener', ['event' => WorkerBootingEvent::class, 'method' => '__invoke']);
         $container->setDefinition(VipsCacheLimiter::class, $definition);
