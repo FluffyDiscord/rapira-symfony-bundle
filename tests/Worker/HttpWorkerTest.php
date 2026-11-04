@@ -13,12 +13,17 @@ use FluffyDiscord\RapiraBundle\Worker\HttpWorker;
 use Rapira\Http\Exchange;
 use Rapira\Http\Multipart;
 use Rapira\Http\UploadedFile as RapiraUploadedFile;
+use Symfony\Component\Config\Loader\LoaderInterface;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\HttpKernel\EventListener\SessionListener;
+use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Symfony\Component\HttpKernel\Kernel;
 
 class HttpWorkerTest extends RapiraTestCase
 {
@@ -32,7 +37,7 @@ class HttpWorkerTest extends RapiraTestCase
             new EventDispatcher(),
             false,
             new ScriptedDispatcher($exchanges),
-            new SymfonyRequestFactory('/srv/app/public/index.php'),
+            new SymfonyRequestFactory('/srv/app/public/index.php', new ScriptedDispatcher([])),
             $servicesResetter ?? new RecordingServicesResetter(),
             null,
         );
@@ -85,6 +90,46 @@ class HttpWorkerTest extends RapiraTestCase
 
         self::assertTrue($isUploadPresentOnTerminate);
         self::assertFileDoesNotExist($uploadPath);
+    }
+
+    public function testFinishedRequestIsFreedWithoutTheCycleCollector(): void
+    {
+        $kernel = new class('test', false) extends Kernel implements WorkerKernelInterface {
+            /** @var \WeakReference<Request>|null */
+            public ?\WeakReference $requestReference = null;
+
+            public function registerBundles(): iterable
+            {
+                return [];
+            }
+
+            public function registerContainerConfiguration(LoaderInterface $loader): void
+            {
+            }
+
+            public function boot(): void
+            {
+            }
+
+            public function handle(Request $request, int $type = HttpKernelInterface::MAIN_REQUEST, bool $catch = true): Response
+            {
+                $sessionListener = new SessionListener(new Container());
+                $sessionListener->onKernelRequest(new RequestEvent($this, $request, $type));
+                $this->requestReference = \WeakReference::create($request);
+
+                return new Response('ok');
+            }
+        };
+
+        gc_disable();
+        try {
+            $this->worker($kernel, [new RecordingExchange($this->makeRequest(method: 'POST', body: 'large body'))])->start();
+        } finally {
+            gc_enable();
+        }
+
+        self::assertInstanceOf(\WeakReference::class, $kernel->requestReference);
+        self::assertNull($kernel->requestReference->get());
     }
 
     public function testThrowableWritesFiveHundredAndRebootsKernel(): void

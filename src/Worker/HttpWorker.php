@@ -17,6 +17,7 @@ use Symfony\Component\DependencyInjection\ServicesResetterInterface;
 use Symfony\Component\ErrorHandler\ErrorRenderer\HtmlErrorRenderer;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Exception\SessionNotFoundException;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -66,10 +67,6 @@ class HttpWorker
         }
     }
 
-    /**
-     * Rapira's dispatcher mode discards error_log() output, so diagnostics go through
-     * \Rapira\log() (the app log target) when the extension is present.
-     */
     private function log(string $message): void
     {
         if (\function_exists('Rapira\log')) {
@@ -134,6 +131,10 @@ class HttpWorker
 
             $this->servicesResetter?->reset();
 
+            if ($request !== null) {
+                $this->breakSessionFactoryCycle($request);
+            }
+
             $isRebootable = $this->kernel instanceof RebootableInterface;
             if ($failed && $isRebootable) {
                 $this->kernel->reboot(null);
@@ -190,6 +191,16 @@ class HttpWorker
                 unlink($path);
             }
         });
+    }
+
+    private function breakSessionFactoryCycle(Request $request): void
+    {
+        $hasPendingFactory = $request->hasSession() && !$request->hasSession(true);
+        if (!$hasPendingFactory) {
+            return;
+        }
+
+        $request->setSessionFactory(fn (): never => throw new SessionNotFoundException('The session is gone because the request has finished.'));
     }
 
     private function createWriter(Response $response, Request $request): ResponseWriter
