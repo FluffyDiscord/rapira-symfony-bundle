@@ -258,10 +258,10 @@ start_db() {
     docker network create "$DB_NET" >/dev/null
     if [ "$DB_KIND" = "pgsql" ]; then
         DB_CID=$(docker run -d --network "$DB_NET" --network-alias db \
-            -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app postgres:17-alpine)
+            -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=app postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b)
     else
         DB_CID=$(docker run -d --network "$DB_NET" --network-alias db \
-            -e MARIADB_ROOT_PASSWORD=root -e MARIADB_USER=app -e MARIADB_PASSWORD=app -e MARIADB_DATABASE=app mariadb:11)
+            -e MARIADB_ROOT_PASSWORD=root -e MARIADB_USER=app -e MARIADB_PASSWORD=app -e MARIADB_DATABASE=app mariadb:11@sha256:c4124d1afa875e47f2892edf26b482fa54f796e2f342d3717a04ca091a22a9bd)
     fi
     # The images restart the server once after init; wait for a query to succeed twice in a row.
     for _ in $(seq 1 90); do

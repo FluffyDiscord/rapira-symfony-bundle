@@ -2,10 +2,6 @@
 
 namespace FluffyDiscord\RapiraBundle\Warmup;
 
-/**
- * Iterating the tagged twig.runtime services instantiates them — that is the
- * entire warm-up. See docs/specs/worker-warmup.md §3.
- */
 readonly class TwigRuntimesWarmer implements WorkerWarmerInterface
 {
     /**
@@ -20,7 +16,7 @@ readonly class TwigRuntimesWarmer implements WorkerWarmerInterface
     public function warmup(): void
     {
         foreach ($this->twigRuntimes as $twigRuntime) {
-            // Advancing the lazy tagged iterator instantiates the runtime — that IS the warm-up.
+            // @invariant Advancing the lazy tagged iterator instantiates the runtime; this loop is the warm-up.
         }
     }
 }

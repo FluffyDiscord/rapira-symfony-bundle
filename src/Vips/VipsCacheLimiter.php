@@ -5,14 +5,6 @@ namespace FluffyDiscord\RapiraBundle\Vips;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerBootingEvent;
 use Jcupitt\Vips\Config;
 
-/**
- * Bounds libvips's process-global operation cache at worker boot. libvips keeps a cache
- * (1000 operations / 100 MB / 100 files by default) plus static FFI handles on the C heap;
- * under php-fpm that arena died with the request, but a resident worker accumulates it on top
- * of PHP's own memory_limit, invisible to PHP's memory accounting — it surfaces only as an
- * unexplained RSS climb. The cache is bounded rather than disabled so a single request can
- * still reuse variants of one source image.
- */
 readonly class VipsCacheLimiter
 {
     public function __construct(
@@ -44,10 +36,6 @@ readonly class VipsCacheLimiter
         }
     }
 
-    /**
-     * Without FFI in this SAPI no request in the worker can load libvips either, so there is no
-     * cache to bound.
-     */
     private function getFfiRestriction(): ?string
     {
         $isFfiLoaded = \extension_loaded('ffi');

@@ -6,10 +6,8 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Dumper\Preloader;
 
 /**
- * Replays the learned manifest at boot: symbols via Symfony's Preloader (autoloader
- * driven, idempotent — opcache_compile_file() on class files would early-bind and
- * later fatal with "Cannot redeclare" on multi-class files), cache-dir files via
- * opcache_compile_file(). See docs/specs/worker-warmup.md ADR-3, ADR-4.
+ * @invariant Preload classes through Symfony's Preloader, never opcache_compile_file():
+ *            that early-binds them and later fatals with "Cannot redeclare" on multi-class files.
  */
 class LearnedManifestWarmer implements WorkerWarmerInterface
 {
@@ -70,9 +68,7 @@ class LearnedManifestWarmer implements WorkerWarmerInterface
             return false;
         }
 
-        // Boot-compiling volatile cache-pool files while opcache.file_cache is active
-        // measurably degrades first requests (spec ADR-4); the class preload above is
-        // still beneficial, so only this step is skipped.
+        // @invariant Compiling volatile cache-pool files while opcache.file_cache is active slows first requests.
         if ($this->getFileCacheIni() !== '') {
             $this->logger?->debug('Rapira warmup: opcache.file_cache active; skipping cache-dir file compilation.');
 

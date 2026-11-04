@@ -6,12 +6,6 @@ use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFailedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestReceivedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerResponseSentEvent;
 
-/**
- * Profiles each request under the resident dispatcher worker, where the DDEV xhprof
- * auto_prepend runs once at boot instead of per request. Enables xhprof when a request
- * arrives and writes a serialized run per request — the format the DDEV /xhprof
- * prepend-mode UI reads — when the response is sent or the request fails.
- */
 readonly class XhprofRequestProfiler
 {
     public function __construct(

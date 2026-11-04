@@ -6,10 +6,8 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 /**
- * JSON manifest of symbols/files real traffic loaded, replayed at worker boot.
- * JSON, not executable PHP: a PHP manifest read via include would be opcache-cached
- * (stale re-reads under validate_timestamps=0) and would execute attacker-writable
- * code if manifest_path is relocated. See docs/specs/worker-warmup.md ADR-8.
+ * @invariant Keep the manifest JSON, never includable PHP: opcache serves stale reads under
+ *            validate_timestamps=0, and a relocated manifest_path would execute writable code.
  */
 class WarmupManifestStorage
 {
@@ -27,8 +25,7 @@ class WarmupManifestStorage
 
     private function getContainerBuildId(): string
     {
-        // container.build_id is added by PhpDumper at dump time; it is not available
-        // during container compilation, hence the runtime lookup.
+        // @invariant PhpDumper adds container.build_id at dump time, so it can only be read at runtime.
         try {
             $buildId = $this->parameterBag?->get('container.build_id');
 
@@ -89,9 +86,8 @@ class WarmupManifestStorage
     public function write(array $classes, array $files): bool
     {
         try {
-            // Runtime-generated symbols are unlearnable: anonymous classes cannot be
-            // autoloaded, and some vendor-generated class names carry raw non-UTF-8
-            // bytes that would make json_encode fail for the whole manifest.
+            // @invariant Drop anonymous classes, which can't be autoloaded, and names with non-UTF-8 bytes,
+            // which make json_encode fail for the whole manifest.
             $isLearnable = static fn(string $symbol) => !str_contains($symbol, '@anonymous') && preg_match('//u', $symbol) === 1;
             $newClasses = array_values(array_filter($classes, $isLearnable));
             $newFiles = array_values(array_filter($files, static fn(string $file) => preg_match('//u', $file) === 1));
@@ -111,9 +107,8 @@ class WarmupManifestStorage
                 return false;
             }
 
-            // Unique temp name in the manifest's own directory: concurrent workers never
-            // share a temp file, and rename() stays on one filesystem (atomic).
-            $tempPath = $manifestDirectory . '/.warmup.' . getmypid() . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            // @invariant The temp file sits next to the manifest, so rename() stays on one filesystem and atomic.
+            $tempPath = $manifestDirectory . '/.warmup.' . (int) getmypid() . '.' . bin2hex(random_bytes(4)) . '.tmp';
 
             $json = json_encode($merged);
             if ($json === false || @file_put_contents($tempPath, $json) === false) {

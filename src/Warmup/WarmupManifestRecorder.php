@@ -6,13 +6,8 @@ use FluffyDiscord\RapiraBundle\Event\Worker\WorkerResponseSentEvent;
 use Psr\Log\LoggerInterface;
 
 /**
- * Learns what real traffic loads. Each record captures the FULL current declared-symbol
- * and cache-dir-include sets: replay is idempotent and the storage union-merge dedupes,
- * so a kernel reboot mid-learning (fresh instance) is harmless. A baseline-delta design
- * must not be reintroduced — any baseline captured at or after the first response
- * swallows that request's cold-load graph, the single biggest thing to learn.
- * A write is skipped when neither set grew since the last record.
- * See docs/specs/worker-warmup.md ADR-7.
+ * @invariant Record the full symbol and file sets, never a delta from a baseline:
+ *            a baseline taken at the first response misses that request's cold-load classes.
  */
 class WarmupManifestRecorder
 {
@@ -29,14 +24,13 @@ class WarmupManifestRecorder
         private readonly string                $cacheDir,
         private readonly int                   $learnRequests,
         private readonly ?LoggerInterface      $logger = null,
-        private readonly bool                  $persistentWorker = true,
     )
     {
     }
 
     public function __invoke(WorkerResponseSentEvent $event): void
     {
-        if ($this->done || !$this->persistentWorker) {
+        if ($this->done) {
             return;
         }
 

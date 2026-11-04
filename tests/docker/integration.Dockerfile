@@ -1,12 +1,13 @@
 # End-to-end integration image: a minimal Symfony app that uses the bundle, served by the
 # pinned Rapira binary over a PHP-embed library built from source on Debian trixie (the OS
-# the nightly binary is built against). Extensions are trimmed to what this test app needs —
-# the full production extension set is verified separately by the base image (IT-009).
+# the nightly binary is built against). Extensions are trimmed to what this test app needs.
 #
 # Build context is the bundle repo root.
 
+ARG DEBIAN_IMAGE=debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+
 # --- Build the PHP embed library + CLI from source ---
-FROM debian:trixie-slim AS php-build
+FROM ${DEBIAN_IMAGE} AS php-build
 
 ARG PHP_VERSION=8.5.10
 ARG PHP_SHA256=f5c0ac99b85b3d677de475c2e4f509f9b4f54663f3ee5a84d6d9481a521d4100
@@ -36,7 +37,7 @@ RUN ./configure \
     && mkdir -p /usr/local/etc/php/conf.d
 
 # --- Assemble the runtime with the Rapira binary and the app ---
-FROM debian:trixie-slim AS runtime
+FROM ${DEBIAN_IMAGE} AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libxml2 libssl3t64 libcurl4t64 libsqlite3-0 libonig5 zlib1g libicu76 libpq5 ca-certificates git unzip \
@@ -44,7 +45,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=php-build /usr/local/ /usr/local/
 COPY --from=ghcr.io/rapira-rs/rapira:0.9.2-php8.5@sha256:cb6f0086097ba7e82e18a504df15beeb4c477ed036240b014e74edfde7b22f04 /usr/local/bin/rapira /usr/local/bin/rapira
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:2@sha256:b6dcd72ca98fa19d0e5b8476de179859704891fad06dd9e0b96833d4c430a5fc /usr/bin/composer /usr/bin/composer
 
 RUN printf 'opcache.enable=1\nopcache.enable_cli=1\nopcache.jit=disable\nopcache.jit_buffer_size=0\nmemory_limit=256M\nvariables_order = "EGPCS"\n' > /usr/local/etc/php/php.ini \
     && rapira --version && php -v

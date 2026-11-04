@@ -7,12 +7,6 @@ use Rapira\Http\Exchange;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-/**
- * Writes a Symfony Response to a Rapira exchange through Symfony's own output contract.
- * A plain response is one write; a StreamedResponse (and its subclasses, e.g.
- * StreamedJsonResponse) is streamed by running sendContent() under an output-buffer handler
- * that forwards every chunk to the exchange as it is produced.
- */
 class ResponseWriter
 {
     protected bool $headWritten = false;
@@ -81,7 +75,7 @@ class ResponseWriter
             return '';
         };
 
-        ob_start($forward, 1);
+        ob_start($forward, 1); // @mago-ignore analysis:invalid-argument
 
         try {
             $this->response->sendContent();

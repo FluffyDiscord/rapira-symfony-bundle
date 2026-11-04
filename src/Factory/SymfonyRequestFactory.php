@@ -11,8 +11,7 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Builds a Symfony Request from the host-parsed Rapira request. $_SERVER is never merged, so
- * boot-time Dotenv values and secrets never reach the request or anything that inspects it.
+ * @invariant Never merge $_SERVER: boot-time Dotenv values and secrets would reach the request.
  */
 readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
 {
@@ -149,7 +148,7 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
         $seenNames = [];
         foreach (explode(';', $cookieHeader) as $cookie) {
             $trimmedCookie = ltrim($cookie, " \t\n\r\v\f");
-            [$name, $rawValue] = explode('=', $trimmedCookie, 2) + [1 => ''];
+            [$name, $rawValue] = array_pad(explode('=', $trimmedCookie, 2), 2, '');
             if ($name === '') {
                 continue;
             }
@@ -221,10 +220,6 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     }
 
     /**
-     * Rebuilds the request bag from multipart fields the way PHP itself would: encoding each
-     * field back into a query string and running parse_str reproduces bracket nesting and the
-     * "." / space → "_" key rewrite exactly, and preserves repeated names.
-     *
      * @param list<\Rapira\Http\FormField> $fields
      * @return array<array-key, mixed>
      */
@@ -253,10 +248,17 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
         }
 
         $files = $this->parseQueryString(implode('&', $pairs));
-        array_walk_recursive($files, function (string &$file) use ($uploadedFiles): void {
-            $index = (int) $file;
-            $file = $this->createFile($uploadedFiles[$index]);
-        });
+        array_walk_recursive(
+            $files,
+            /**
+             * @param-out UploadedFile|array<string, int|string> $file
+             */
+            function (string &$file) use ($uploadedFiles): void {
+                $index = (int) $file;
+                $file = $this->createFile($uploadedFiles[$index]);
+            },
+        );
+        assert(\is_array($files));
 
         return $files;
     }

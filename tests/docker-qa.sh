@@ -13,13 +13,12 @@ docker run --rm \
     -v "$ROOT/src":/app/src:ro \
     -v "$ROOT/config":/app/config:ro \
     -v "$ROOT/tests":/app/tests:ro \
-    -v "$ROOT/phpstan":/app/phpstan:ro \
-    -v "$ROOT/phpstan.neon":/app/phpstan.neon:ro \
+    -v "$ROOT/mago.toml":/app/mago.toml:ro \
     -v "$ROOT/phpunit.xml.dist":/app/phpunit.xml.dist:ro \
     "$IMAGE" bash -c '
         set -e
-        echo "=== PHPStan (level max) ==="
-        php vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+        echo "=== Mago analyzer ==="
+        php vendor/bin/mago analyze
         echo "=== PHPUnit ==="
         php vendor/bin/phpunit
     '

@@ -9,6 +9,7 @@ class Configuration implements ConfigurationInterface
 {
     public function getConfigTreeBuilder(): TreeBuilder
     {
+        /** @var TreeBuilder<'array'> $treeBuilder */
         $treeBuilder = new TreeBuilder('rapira');
         $rootNode = $treeBuilder->getRootNode();
 

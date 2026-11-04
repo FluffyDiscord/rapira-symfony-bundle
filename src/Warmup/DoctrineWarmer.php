@@ -6,11 +6,6 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\Persistence\ManagerRegistry;
 
-/**
- * Hydrates all Doctrine metadata and, for ORM managers, builds every entity
- * persister — both otherwise constructed lazily on each worker's first queries.
- * See docs/specs/worker-warmup.md §3.
- */
 readonly class DoctrineWarmer implements WorkerWarmerInterface
 {
     public function __construct(

@@ -119,7 +119,7 @@ class ReconnectingPdoSessionHandler extends PdoSessionHandler
     }
 
     /**
-     * Symfony 7.4's PdoSessionHandler::read() may return false; 8.x always returns a string.
+     * @invariant Symfony 7.4's PdoSessionHandler::read() may return false; 8.x always returns a string.
      */
     private function readOrEmpty(PdoSessionHandler $handler, string $sessionId): string
     {

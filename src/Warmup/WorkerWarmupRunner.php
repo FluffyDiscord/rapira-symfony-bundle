@@ -5,48 +5,28 @@ namespace FluffyDiscord\RapiraBundle\Warmup;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerBootingEvent;
 use Psr\Log\LoggerInterface;
 
-/** See docs/specs/worker-warmup.md ADR-2, ADR-5. */
 readonly class WorkerWarmupRunner
 {
     /**
-     * In classic mode Rapira runs a fresh process for every request, so nothing warmed
-     * survives to a second request and the boot-time replay only adds latency. Worse,
-     * compiling cached Twig templates early-binds their classes, which makes Twig skip its
-     * freshness check and serve stale templates in development. The runner therefore no-ops
-     * unless the kernel runs in persistent worker mode (kernel.runtime_mode.worker).
-     *
      * @param iterable<WorkerWarmerInterface> $warmers priority-ordered tagged iterator
      */
     public function __construct(
         private iterable         $warmers,
         private ?LoggerInterface $logger = null,
-        private bool             $persistentWorker = true,
     )
     {
     }
 
     public function __invoke(WorkerBootingEvent $event): void
     {
-        if (!$this->persistentWorker) {
-            $this->logger?->debug('Rapira warmup: skipped, the worker pool runs in classic mode (one process per request).');
-
-            return;
-        }
-
         $totalStart = microtime(true);
         $warmerCount = 0;
 
-        // A warmer's stray output (echo, a PHP warning with display_errors) is discarded in
-        // dispatcher mode anyway (output never reaches a client, S-23); capture it so it can
-        // be logged rather than lost.
         ob_start();
 
         try {
-            // The foreach itself can throw: tagged-iterator advancement lazily
-            // instantiates each warmer service, and a failing constructor anywhere in a
-            // warmer's dependency graph surfaces at the loop statement, not inside
-            // warmup(). An escape here would kill the worker before the serve loop and
-            // crash-loop the pool — the exact failure class this feature removed.
+            // @invariant Advancing the tagged iterator instantiates warmers, so a failing constructor throws
+            // at the foreach. An escape kills the worker before the serve loop and crash-loops the pool.
             try {
                 foreach ($this->warmers as $warmer) {
                     $warmerStart = microtime(true);

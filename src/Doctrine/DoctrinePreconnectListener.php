@@ -79,8 +79,8 @@ readonly class DoctrinePreconnectListener
 
     private function isServerDatabase(Connection $connection): bool
     {
-        // Driver NAME, not getDriver(): doctrine-bridge/doctrine-bundle wrap the driver in
-        // middleware, so getDriver() is never AbstractPostgreSQLDriver. The name is socket-free.
+        // @invariant Compare the driver name: doctrine-bundle wraps the driver in middleware,
+        // so getDriver() never matches a concrete driver class.
         $driver = $connection->getParams()['driver'] ?? null;
 
         return \in_array($driver, ['pdo_pgsql', 'pgsql', 'pdo_mysql', 'mysqli'], true);
@@ -101,7 +101,6 @@ readonly class DoctrinePreconnectListener
     private function connect(int|string $name, Connection $connection): void
     {
         try {
-            // Forces the lazy connection open; the returned handle is intentionally unused.
             $connection->getNativeConnection();
         } catch (\Throwable $throwable) {
             $this->logger?->warning(

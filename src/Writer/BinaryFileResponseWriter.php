@@ -6,13 +6,6 @@ use Rapira\Http\Exception\FileNotSendableException;
 use Rapira\Http\Exchange;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
-/**
- * Hands a file to the host via sendFile() when the file sits inside the configured
- * [http.sendfile] root; a file outside it makes the host raise FileNotSendableException
- * before writing anything, so the writer falls back to reading and streaming the bytes
- * through Symfony's own sendContent(). A response that must delete its file after sending
- * always takes the streaming path so Symfony performs the unlink.
- */
 class BinaryFileResponseWriter extends ResponseWriter
 {
     protected function writeBody(Exchange $exchange): void
@@ -36,6 +29,7 @@ class BinaryFileResponseWriter extends ResponseWriter
 
         $canSendFile = $realPath !== false && !$deleteAfterSend && $maxLength !== 0;
         if ($canSendFile) {
+            assert($realPath !== '');
             $length = $maxLength < 0 ? null : $maxLength;
             try {
                 $exchange->sendFile($realPath, $offset, $length, true);

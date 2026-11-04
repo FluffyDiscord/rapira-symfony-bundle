@@ -95,7 +95,6 @@ class FluffyDiscordRapiraExtension extends Extension
             return false;
         }
 
-        // Both "auto" and forced "true" need php-vips present; the limiter calls into it at boot.
         return class_exists(\Jcupitt\Vips\Config::class);
     }
 
@@ -172,7 +171,6 @@ class FluffyDiscordRapiraExtension extends Extension
         $runner = new Definition(WorkerWarmupRunner::class, [
             new TaggedIteratorArgument(self::WORKER_WARMER_TAG),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-            '%kernel.runtime_mode.worker%',
         ]);
         $runner->addTag('kernel.event_listener', ['event' => WorkerBootingEvent::class, 'method' => '__invoke', 'priority' => 128]);
         $container->setDefinition(WorkerWarmupRunner::class, $runner);
@@ -183,7 +181,6 @@ class FluffyDiscordRapiraExtension extends Extension
                 '%kernel.cache_dir%',
                 $warmupConfig['learn_requests'],
                 new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-                '%kernel.runtime_mode.worker%',
             ]);
             $recorder->addTag('kernel.event_listener', ['event' => WorkerResponseSentEvent::class, 'method' => '__invoke']);
             $container->setDefinition(WarmupManifestRecorder::class, $recorder);
