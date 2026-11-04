@@ -1,0 +1,2 @@
+/composer.lock export-ignore
+/tests/docker/app/composer.lock export-ignore
