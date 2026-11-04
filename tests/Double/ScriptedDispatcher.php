@@ -20,4 +20,14 @@ class ScriptedDispatcher implements DispatcherInterface
     {
         return array_shift($this->exchanges);
     }
+
+    public function getServerName(): string
+    {
+        return 'rapira.internal';
+    }
+
+    public function getServerPort(): int
+    {
+        return 8080;
+    }
 }

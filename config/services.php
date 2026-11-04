@@ -25,6 +25,7 @@ return static function (ContainerConfigurator $container): void {
         ->set(SymfonyRequestFactory::class)
         ->args([
             '%kernel.project_dir%/public/index.php',
+            service(DispatcherInterface::class),
         ])
     ;
     $services->alias(SymfonyRequestFactoryInterface::class, SymfonyRequestFactory::class);

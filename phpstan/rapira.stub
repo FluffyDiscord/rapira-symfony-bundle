@@ -1,0 +1,9 @@
+<?php
+
+namespace Rapira\Http;
+
+/**
+ * @method string serverName()
+ * @method int<0, 65535> serverPort()
+ */
+interface HttpDispatcherInfo {}

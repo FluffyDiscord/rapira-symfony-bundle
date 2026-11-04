@@ -19,7 +19,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 ## Requirements
 
 - PHP >= 8.4
-- Rapira >= 0.9.1
+- Rapira >= 0.9.2
 - Symfony `^7.4 || ^8`
 
 ## Installation
@@ -222,7 +222,6 @@ Over the limit → `413`.
 
 - Escaping exception → kernel reboots; the next request gets a clean container.
 - Details go to the Rapira log and Sentry if installed.
-- `error_log()` output is lost in `dispatcher` mode — the bundle logs through `\Rapira\log()` (target `app`).
 
 Not covered:
 

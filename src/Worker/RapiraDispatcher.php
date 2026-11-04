@@ -25,4 +25,14 @@ readonly class RapiraDispatcher implements DispatcherInterface
             return null;
         }
     }
+
+    public function getServerName(): string
+    {
+        return $this->dispatcher->getInfo()->serverName();
+    }
+
+    public function getServerPort(): int
+    {
+        return $this->dispatcher->getInfo()->serverPort();
+    }
 }

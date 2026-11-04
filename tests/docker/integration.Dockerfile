@@ -43,10 +43,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=php-build /usr/local/ /usr/local/
-COPY --from=ghcr.io/rapira-rs/rapira:0.9.1-php8.5@sha256:80ff2b14f73a2490c1eb40e6489e8a209fab8355f29a4345f6eb65cd72aaaab6 /usr/local/bin/rapira /usr/local/bin/rapira
+COPY --from=ghcr.io/rapira-rs/rapira:0.9.2-php8.5@sha256:cb6f0086097ba7e82e18a504df15beeb4c477ed036240b014e74edfde7b22f04 /usr/local/bin/rapira /usr/local/bin/rapira
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-RUN printf 'opcache.enable=1\nopcache.enable_cli=1\nmemory_limit=256M\nvariables_order = "EGPCS"\n' > /usr/local/etc/php/php.ini \
+RUN printf 'opcache.enable=1\nopcache.enable_cli=1\nopcache.jit=disable\nopcache.jit_buffer_size=0\nmemory_limit=256M\nvariables_order = "EGPCS"\n' > /usr/local/etc/php/php.ini \
     && rapira --version && php -v
 
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid 1000 --create-home app

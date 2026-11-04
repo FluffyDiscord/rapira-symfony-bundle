@@ -3,6 +3,7 @@
 namespace FluffyDiscord\RapiraBundle\Tests\Factory;
 
 use FluffyDiscord\RapiraBundle\Factory\SymfonyRequestFactory;
+use FluffyDiscord\RapiraBundle\Tests\Double\ScriptedDispatcher;
 use FluffyDiscord\RapiraBundle\Tests\RapiraTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Rapira\Http\FormField;
@@ -35,7 +36,7 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
 
     private function factory(): SymfonyRequestFactory
     {
-        return new SymfonyRequestFactory('/srv/app/public/index.php');
+        return new SymfonyRequestFactory('/srv/app/public/index.php', new ScriptedDispatcher([]));
     }
 
     private function spool(string $content = ''): string
@@ -79,6 +80,16 @@ class SymfonyRequestFactoryTest extends RapiraTestCase
         self::assertSame('shop.example', $request->getHost());
         self::assertSame(8443, $request->getPort());
         self::assertSame('203.0.113.7', $request->getClientIp());
+        self::assertSame('rapira.internal', $request->server->get('SERVER_NAME'));
+        self::assertSame(8080, $request->server->get('SERVER_PORT'));
+    }
+
+    public function testRequestWithoutAuthorityUsesTheConfiguredServer(): void
+    {
+        $request = $this->factory()->createRequest($this->makeRequest(authority: null));
+
+        self::assertSame('rapira.internal', $request->getHost());
+        self::assertSame(8080, $request->getPort());
     }
 
     public function testPlainHttpIsNotSecure(): void

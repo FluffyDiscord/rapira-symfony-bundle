@@ -4,6 +4,8 @@ parameters:
         - src
     stubFiles:
         - phpstan/xhprof.stub
+        # Delete with the stub once rapira/contract ^0.9.2 is required.
+        - phpstan/rapira.stub
     scanFiles:
         - vendor/rapira/contract/src/functions.php
     ignoreErrors:

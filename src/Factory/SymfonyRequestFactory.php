@@ -2,6 +2,7 @@
 
 namespace FluffyDiscord\RapiraBundle\Factory;
 
+use FluffyDiscord\RapiraBundle\Worker\DispatcherInterface;
 use Rapira\Http\Multipart;
 use Rapira\Http\Request as RapiraRequest;
 use Rapira\Http\UploadedFile as RapiraUploadedFile;
@@ -10,16 +11,22 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Builds a Symfony Request from the host-parsed Rapira request. The server bag is assembled
- * from the Rapira request alone; $_SERVER is never merged, so boot-time Dotenv values and
- * secrets never reach the request or anything that inspects it.
+ * Builds a Symfony Request from the host-parsed Rapira request. $_SERVER is never merged, so
+ * boot-time Dotenv values and secrets never reach the request or anything that inspects it.
  */
 readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
 {
+    private string $serverName;
+
+    private int $serverPort;
+
     public function __construct(
-        private string $scriptFilename,
+        private string      $scriptFilename,
+        DispatcherInterface $dispatcher,
     )
     {
+        $this->serverName = $dispatcher->getServerName();
+        $this->serverPort = $dispatcher->getServerPort();
     }
 
     public function createRequest(RapiraRequest $rapiraRequest): Request
@@ -84,21 +91,6 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
     {
         $requestUri = $queryString === '' ? $path : $path . '?' . $queryString;
 
-        $isSecure = $rapiraRequest->tls !== null;
-        $defaultPort = $isSecure ? 443 : 80;
-
-        $authority = $rapiraRequest->authority ?? '';
-        $host = $authority;
-        $port = $defaultPort;
-        $portPosition = strrpos($authority, ':');
-        if ($portPosition !== false) {
-            $host = substr($authority, 0, $portPosition);
-            $parsedPort = (int) substr($authority, $portPosition + 1);
-            if ($parsedPort > 0) {
-                $port = $parsedPort;
-            }
-        }
-
         $remote = $rapiraRequest->remote;
         $remoteAddress = $remote instanceof InetAddress ? $remote->ip : '127.0.0.1';
 
@@ -109,9 +101,9 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
             'REQUEST_TIME_FLOAT' => $rapiraRequest->receivedAt,
             'REQUEST_URI'        => $requestUri,
             'QUERY_STRING'       => $queryString,
-            'HTTP_HOST'          => $authority,
-            'SERVER_NAME'        => $host,
-            'SERVER_PORT'        => $port,
+            'HTTP_HOST'          => $rapiraRequest->authority ?? '',
+            'SERVER_NAME'        => $this->serverName,
+            'SERVER_PORT'        => $this->serverPort,
             'REMOTE_ADDR'        => $remoteAddress,
             'SCRIPT_NAME'        => '',
             'SCRIPT_FILENAME'    => $this->scriptFilename,
@@ -122,6 +114,7 @@ readonly class SymfonyRequestFactory implements SymfonyRequestFactoryInterface
             $server['REMOTE_PORT'] = $remote->port;
         }
 
+        $isSecure = $rapiraRequest->tls !== null;
         if ($isSecure) {
             $server['HTTPS'] = 'on';
         }
