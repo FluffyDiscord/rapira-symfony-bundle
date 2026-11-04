@@ -141,7 +141,7 @@ rapira:
 | `session.keep_connection` | `true` | Keep the `PdoSessionHandler` connection open between requests; reconnect and retry when it dies. |
 | `profiling.xhprof.enabled` | `false` | `true` = profile every request. `auto` = when `ext-xhprof` is loaded and `kernel.debug` is on. |
 | `profiling.xhprof.output_dir` | `null` | `null` = ini `xhprof.output_dir`, then `<sys_get_temp_dir>/xhprof`. |
-| `vips.enabled` | `auto` | Cap libvips's process-wide cache at worker boot. `auto` = when `jcupitt/vips` is installed. |
+| `vips.enabled` | `auto` | Cap libvips's process-wide cache at worker boot. `auto` = when `jcupitt/vips` is installed and FFI works in the worker (`ffi.enable=1`); otherwise no worker can load libvips, so nothing to cap. `true` = also log why it can't. |
 | `vips.max_*` | `50` / `50` / `20` | libvips cache limits: operations, memory (MB), open files. |
 
 ## Worker warmup
