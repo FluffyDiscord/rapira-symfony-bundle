@@ -155,9 +155,9 @@ The bundle warms during worker boot, before Rapira sends the first request. Zero
 
 Warmed classes live in each worker's opcache — budget `opcache.memory_consumption` × `processes`.
 
-`opcache.preload` works too: point it at `var/cache/prod/App_KernelProdContainer.preload.php`. The container preload warmer isn't needed then.
+`opcache.preload` works too: point it at `config/preload.php`, from Symfony's recipe. The container preload warmer isn't needed then.
 
-> Only with `opcache.preload` set: run `cache:warmup` before starting Rapira, and set `opcache.preload_user` if it runs as root. Otherwise PHP fails at startup and Rapira serves nothing.
+> Running Rapira as root? Also set `opcache.preload_user`.
 
 ### Warming your own services
 
