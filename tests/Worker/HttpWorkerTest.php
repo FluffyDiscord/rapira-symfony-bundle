@@ -20,7 +20,9 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\ErrorHandler\ErrorHandler;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\HttpKernel\EventListener\DebugHandlersListener;
 use Symfony\Component\HttpKernel\EventListener\SessionListener;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\Kernel;
@@ -113,19 +115,32 @@ class HttpWorkerTest extends RapiraTestCase
 
             public function handle(Request $request, int $type = HttpKernelInterface::MAIN_REQUEST, bool $catch = true): Response
             {
-                $sessionListener = new SessionListener(new Container());
-                $sessionListener->onKernelRequest(new RequestEvent($this, $request, $type));
+                $requestEvent = new RequestEvent($this, $request, $type);
+                (new DebugHandlersListener())->configure($requestEvent);
+                (new SessionListener(new Container()))->onKernelRequest($requestEvent);
                 $this->requestReference = \WeakReference::create($request);
 
                 return new Response('ok');
             }
+
+            public function terminateWithException(\Throwable $exception): void
+            {
+            }
+
+            public function getContainer(): Container
+            {
+                return new Container();
+            }
         };
 
+        $errorHandler = new ErrorHandler();
+        set_exception_handler([$errorHandler, 'handleException']);
         gc_disable();
         try {
             $this->worker($kernel, [new RecordingExchange($this->makeRequest(method: 'POST', body: 'large body'))])->start();
         } finally {
             gc_enable();
+            restore_exception_handler();
         }
 
         self::assertInstanceOf(\WeakReference::class, $kernel->requestReference);

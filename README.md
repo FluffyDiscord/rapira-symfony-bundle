@@ -12,7 +12,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 - [Uploads](#uploads) — plain `UploadedFile`s
 - [Graceful error handling](#error-handling) — kernel reboot after a crash, real `500` responses
 - [Sentry](#sentry) — one scope per request
-- [Database connections](#database-connections) — keep opened and usable across requests 
+- [Database connections](#database-connections) — keep opened and usable across requests
 - [xhprof profiling](#configuration)
 - [libvips cache limit](#configuration)
 
@@ -139,7 +139,7 @@ rapira:
 | `warmup.manifest_path` | `null` | `null` = `<kernel.cache_dir>/rapira/warmup.manifest.json`. Point outside the cache dir to keep learning across deploys. |
 | `doctrine.preconnect` | `false` | Open PostgreSQL/MySQL/MariaDB connections at worker boot, check them at every request start. Needs `doctrine/dbal`. See [Database connections](#database-connections). |
 | `session.keep_connection` | `true` | Keep the `PdoSessionHandler` connection open between requests; reconnect and retry when it dies. |
-| `profiling.xhprof.enabled` | `false` | `true` = profile every request. `auto` = when `ext-xhprof` is loaded and `kernel.debug` is on. |
+| `profiling.xhprof.enabled` | `false` | `true` = profile every request. `auto` = only with `kernel.debug` on. Both need `ext-xhprof`. |
 | `profiling.xhprof.output_dir` | `null` | `null` = ini `xhprof.output_dir`, then `<sys_get_temp_dir>/xhprof`. |
 | `vips.enabled` | `auto` | Cap libvips's process-wide cache at worker boot. `auto` = when `jcupitt/vips` is installed and FFI works in the worker (`ffi.enable=1`); otherwise no worker can load libvips, so nothing to cap. `true` = also log why it can't. |
 | `vips.max_*` | `50` / `50` / `20` | libvips cache limits: operations, memory (MB), open files. |
@@ -154,6 +154,10 @@ The bundle warms during worker boot, before Rapira sends the first request. Zero
 `dispatcher` mode only — the runtime sets `APP_RUNTIME_MODE=web=1&worker=1`, whatever `.env` says. `classic` mode keeps nothing warm, so warmup switches itself off.
 
 Warmed classes live in each worker's opcache — budget `opcache.memory_consumption` × `processes`.
+
+`opcache.preload` works too: point it at `var/cache/prod/App_KernelProdContainer.preload.php`. The container preload warmer isn't needed then.
+
+> Only with `opcache.preload` set: run `cache:warmup` before starting Rapira, and set `opcache.preload_user` if it runs as root. Otherwise PHP fails at startup and Rapira serves nothing.
 
 ### Warming your own services
 
@@ -198,6 +202,7 @@ Superglobals aren't per-request. Use the `Request`:
 - `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES` are empty.
 - `$_SERVER` holds the process env, never the current request.
 - `echo` / `header()` outside a streamed callback are dropped — return a `Response`.
+- With `framework.http_cache` on, a `Request` you keep after the response is emptied. Copy what you need first.
 
 ## Uploads
 
@@ -222,11 +227,27 @@ Over the limit → `413`.
 
 - Escaping exception → kernel reboots; the next request gets a clean container.
 - Details go to the Rapira log and Sentry if installed.
+- Over `max_execution_time` or `memory_limit` → `502`; the next request works.
+
+**`max_execution_time` only counts CPU time.** A stalled database or HTTP call keeps the worker busy, and requests queue behind it. Cap it:
+
+`rapira.toml`
+
+```toml
+[http.pool]
+request_terminate_timeout_secs = 60
+```
+
+Over the limit → Rapira kills and replaces the worker; that client's connection drops.
+
+> Uploads of a killed worker stay in `rapira-spool-<pid>` under `[http.uploads]` `dir` until Rapira restarts.
 
 Not covered:
 
 - kernel boot failure — no error page, just a PHP fatal in the Rapira log
 - Rapira `worker` mode — stock Symfony runner, no worker loop; use `dispatcher`
+- a custom or decorated `http_cache.store` — its in-memory key map isn't cleared between requests
+- duplicate backend calls for an uncached URL with `framework.http_cache` — Symfony only locks stale entries, so each worker can call your app at once
 
 ## Sentry
 
@@ -243,7 +264,7 @@ Configure as usual.
 | | Stock Symfony | This bundle |
 |---|---|---|
 | Doctrine connection | opened on first query | `doctrine.preconnect: true` → opened at worker boot |
-| Doctrine, server dropped the connection | first query of the next request fails | `SELECT 1` at request start → reconnect before your code runs |
+| Doctrine, server dropped the connection | first query of the next request fails | `doctrine.preconnect: true` → `SELECT 1` at request start, reconnect before your code runs |
 | `PdoSessionHandler` | new connection every request | one persistent connection per worker |
 | `PdoSessionHandler`, server dropped the connection | session request fails | reconnect, re-run the failed query, carry on |
 | `PdoSessionHandler::LOCK_ADVISORY`, failed request | lock dies with the connection | lock released before the retry |
@@ -291,6 +312,6 @@ See the [add-on repository](https://github.com/FluffyDiscord/ddev-rapira) for co
 ## Testing
 
 ```shell
-tests/docker-qa.sh                # PHPStan (level max) + PHPUnit
+tests/docker-qa.sh                # Mago analyzer + PHPUnit
 tests/docker/run-integration.sh   # integration suite against the real Rapira binary
 ```

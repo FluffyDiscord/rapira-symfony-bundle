@@ -2,32 +2,28 @@
 
 namespace FluffyDiscord\RapiraBundle\Kernel;
 
+use Rapira\Mode;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Component\HttpKernel\Kernel;
 
+/**
+ * @require-extends Kernel
+ */
 trait RapiraMicroKernelTrait
 {
     use MicroKernelTrait;
 
     public function boot(): void
     {
-        if (true === $this->booted) {
+        $isBootedInRapiraDispatcher = $this->booted && \Rapira\get_mode() === Mode::Dispatcher;
+        if ($isBootedInRapiraDispatcher) {
             if ($this->debug) {
                 $this->startTime = microtime(true);
             }
+
             return;
         }
 
-        if (null === $this->container) {
-            $reflectionClass = new \ReflectionClass($this);
-            $preBootMethod = $reflectionClass->getMethod("preBoot");
-            $preBootMethod->invoke($this);
-        }
-
-        foreach ($this->getBundles() as $bundle) {
-            $bundle->setContainer($this->container);
-            $bundle->boot();
-        }
-
-        $this->booted = true;
+        parent::boot();
     }
 }

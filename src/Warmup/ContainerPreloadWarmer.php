@@ -6,11 +6,8 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Dumper\Preloader;
 
 /**
- * First-boot fallback: preloads the class list Symfony already dumped into the
- * build dir. The generated preload file cannot be included directly — it returns
- * early under the cli SAPI the resident worker runs in — so the class list is
- * extracted from its stable "$classes[] = '...';" lines. Fail-open: format drift
- * means a no-op, pinned by a fixture test.
+ * @invariant Parse the dumped preload file, never include it: it returns early under
+ *            cli, phpdbg and embed, and the worker's SAPI name is Rapira's to choose.
  */
 class ContainerPreloadWarmer implements WorkerWarmerInterface
 {
@@ -69,10 +66,11 @@ class ContainerPreloadWarmer implements WorkerWarmerInterface
             return [];
         }
 
+        $matches = [];
         if (preg_match_all("/^\\\$classes\\[\\] = '([^']+)';$/m", $source, $matches) === false) {
             return [];
         }
 
-        return $matches[1];
+        return array_values($matches[1]);
     }
 }

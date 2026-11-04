@@ -13,7 +13,9 @@ use FluffyDiscord\RapiraBundle\Writer\ResponseWriter;
 use Rapira\Exception\RapiraThrowable;
 use Rapira\Http\Exchange;
 use Sentry\State\HubInterface as SentryHubInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\ServicesResetterInterface;
+use Symfony\Component\ErrorHandler\ErrorHandler;
 use Symfony\Component\ErrorHandler\ErrorRenderer\HtmlErrorRenderer;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -23,12 +25,15 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedJsonResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\HttpCache\HttpCache;
 use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\HttpKernel\RebootableInterface;
 use Symfony\Component\HttpKernel\TerminableInterface;
 
 class HttpWorker
 {
+    private ?Request $requestInFlight = null;
+
     public function __construct(
         private readonly KernelInterface            $kernel,
         private EventDispatcherInterface            $eventDispatcher,
@@ -44,6 +49,7 @@ class HttpWorker
     public function start(): void
     {
         ignore_user_abort(true);
+        register_shutdown_function($this->removeUploadsOfRequestInFlight(...));
 
         $pid = getmypid();
         $this->log(sprintf('rapira dispatcher worker started, pid %d', $pid === false ? 0 : $pid));
@@ -61,8 +67,8 @@ class HttpWorker
 
             $this->handleExchange($exchange);
 
-            // Drop the last reference before the next (blocking) receive() so the host's
-            // Work::__destruct safety net can fail an exchange we never finalized.
+            // @invariant Drop the last reference before the blocking receive(), so the host's
+            // Work::__destruct can fail an exchange we never finalized.
             unset($exchange);
         }
     }
@@ -85,6 +91,7 @@ class HttpWorker
         $request = null;
         $response = null;
         $writer = null;
+        $containerHandlingRequest = null;
 
         $outputBufferLevel = ob_get_level();
         ob_start();
@@ -92,10 +99,17 @@ class HttpWorker
         try {
             $this->sentryHub?->pushScope();
 
+            // @invariant The previous request may have shut down or rebooted the kernel: getContainer()
+            // throws until it boots, and the bound services must follow the new container.
+            $this->kernel->boot();
+            $this->rebindToCurrentContainer();
+
             $rapiraRequest = $exchange->getRequest();
             $this->eventDispatcher->dispatch(new WorkerRequestReceivedEvent($rapiraRequest));
 
             $request = $this->requestFactory->createRequest($rapiraRequest);
+            $this->requestInFlight = $request;
+            $containerHandlingRequest = $this->kernel->getContainer();
             $response = $this->kernel->handle($request);
 
             $writer = $this->createWriter($response, $request);
@@ -107,7 +121,7 @@ class HttpWorker
 
             $this->eventDispatcher->dispatch(new WorkerResponseSentEvent($request, $response));
         } catch (RapiraThrowable $throwable) {
-            $this->log('exchange closed by host: ' . $throwable);
+            $this->log('exchange closed by host: ' . (string) $throwable);
         } catch (\Throwable $throwable) {
             if ($rapiraRequest !== null) {
                 $this->eventDispatcher->dispatch(new WorkerRequestFailedEvent($rapiraRequest, $throwable));
@@ -125,9 +139,8 @@ class HttpWorker
         } finally {
             $this->dropStrayOutput($outputBufferLevel);
 
-            if ($request !== null) {
-                $this->removeUploadedFiles($request);
-            }
+            $this->removeUploadsOfRequestInFlight();
+            $this->requestInFlight = null;
 
             $this->servicesResetter?->reset();
 
@@ -135,10 +148,12 @@ class HttpWorker
                 $this->breakSessionFactoryCycle($request);
             }
 
+            $this->releaseHttpCacheState($containerHandlingRequest, $request, $response);
+            $this->releaseRequestFromErrorHandler();
+
             $isRebootable = $this->kernel instanceof RebootableInterface;
             if ($failed && $isRebootable) {
                 $this->kernel->reboot(null);
-                $this->rebindToCurrentContainer();
             }
 
             $this->sentryHub?->getClient()?->flush();
@@ -146,11 +161,6 @@ class HttpWorker
         }
     }
 
-    /**
-     * reboot() swaps in a new container; the resetter and dispatcher this worker holds belong
-     * to the old one, and keeping them would leave the live container's services — a closed
-     * Doctrine EntityManager among them — never reset again.
-     */
     private function rebindToCurrentContainer(): void
     {
         $container = $this->kernel->getContainer();
@@ -166,6 +176,35 @@ class HttpWorker
         }
     }
 
+    private function releaseHttpCacheState(
+        ?ContainerInterface $container,
+        ?Request            $request,
+        ?Response           $response,
+    ): void
+    {
+        if ($container === null) {
+            return;
+        }
+
+        $isHttpCacheBuilt = $container->initialized('http_cache');
+        if (!$isHttpCacheBuilt) {
+            return;
+        }
+
+        $httpCache = $container->get('http_cache');
+        if (!$httpCache instanceof HttpCache) {
+            return;
+        }
+
+        $httpCache->getStore()->cleanup();
+
+        $wasHandled = $request !== null && $response !== null && $httpCache->getTraces() !== [];
+        if ($wasHandled) {
+            $request->initialize();
+            $httpCache->getRequest()->initialize();
+        }
+    }
+
     private function dropStrayOutput(int $outputBufferLevel): void
     {
         while (ob_get_level() > $outputBufferLevel) {
@@ -174,6 +213,13 @@ class HttpWorker
             if ($hasStrayOutput) {
                 $this->log('dropped output printed outside the response: ' . $strayOutput);
             }
+        }
+    }
+
+    private function removeUploadsOfRequestInFlight(): void
+    {
+        if ($this->requestInFlight !== null) {
+            $this->removeUploadedFiles($this->requestInFlight);
         }
     }
 
@@ -201,6 +247,15 @@ class HttpWorker
         }
 
         $request->setSessionFactory(fn (): never => throw new SessionNotFoundException('The session is gone because the request has finished.'));
+    }
+
+    private function releaseRequestFromErrorHandler(): void
+    {
+        $exceptionHandler = get_exception_handler();
+        $isSymfonyHandler = \is_array($exceptionHandler) && $exceptionHandler[0] instanceof ErrorHandler;
+        if ($isSymfonyHandler) {
+            $exceptionHandler[0]->setExceptionHandler(null);
+        }
     }
 
     private function createWriter(Response $response, Request $request): ResponseWriter
@@ -245,6 +300,7 @@ class HttpWorker
         }
     }
 
+    // @mago-ignore analysis:unused-statement(3)
     private function preloadResponseClasses(): void
     {
         class_exists(StreamedResponse::class);

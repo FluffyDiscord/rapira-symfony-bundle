@@ -3,6 +3,7 @@
 namespace FluffyDiscord\RapiraBundle;
 
 use FluffyDiscord\RapiraBundle\DependencyInjection\Compiler\ReconnectingSessionHandlerPass;
+use FluffyDiscord\RapiraBundle\DependencyInjection\Compiler\ResettableHttpCacheStorePass;
 use FluffyDiscord\RapiraBundle\DependencyInjection\FluffyDiscordRapiraExtension;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\ExtensionInterface;
@@ -15,12 +16,11 @@ class FluffyDiscordRapiraBundle extends Bundle
         parent::build($container);
 
         $container->addCompilerPass(new ReconnectingSessionHandlerPass());
+        $container->addCompilerPass(new ResettableHttpCacheStorePass());
     }
 
     public function getContainerExtension(): ?ExtensionInterface
     {
-        // The extension's alias is "rapira", not the "fluffy_discord_rapira" the bundle name
-        // implies, so return it explicitly to opt out of the convention check.
         if ($this->extension === null) {
             $this->extension = new FluffyDiscordRapiraExtension();
         }
