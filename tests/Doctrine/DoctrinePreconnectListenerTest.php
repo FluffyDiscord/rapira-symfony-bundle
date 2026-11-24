@@ -3,11 +3,11 @@
 namespace FluffyDiscord\RapiraBundle\Tests\Doctrine;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\Persistence\ConnectionRegistry;
 use FluffyDiscord\RapiraBundle\Doctrine\DoctrinePreconnectListener;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerBootingEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestReceivedEvent;
 use FluffyDiscord\RapiraBundle\Tests\Double\KillableDriver;
+use FluffyDiscord\RapiraBundle\Tests\Double\SingleConnectionRegistry;
 use FluffyDiscord\RapiraBundle\Tests\RapiraTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -90,34 +90,6 @@ class DoctrinePreconnectListenerTest extends RapiraTestCase
 
     private function createListener(Connection $connection): DoctrinePreconnectListener
     {
-        $registry = new class ($connection) implements ConnectionRegistry {
-            public function __construct(
-                private readonly Connection $connection,
-            )
-            {
-            }
-
-            public function getDefaultConnectionName(): string
-            {
-                return 'default';
-            }
-
-            public function getConnection(?string $name = null): object
-            {
-                return $this->connection;
-            }
-
-            public function getConnections(): array
-            {
-                return ['default' => $this->connection];
-            }
-
-            public function getConnectionNames(): array
-            {
-                return ['default' => 'doctrine.dbal.default_connection'];
-            }
-        };
-
-        return new DoctrinePreconnectListener($registry);
+        return new DoctrinePreconnectListener(new SingleConnectionRegistry($connection));
     }
 }

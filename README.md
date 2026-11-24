@@ -12,7 +12,7 @@ DDEV users: see [DDEV add-on](#ddev-add-on).
 - [Uploads](#uploads) — plain `UploadedFile`s
 - [Graceful error handling](#error-handling) — kernel reboot after a crash, real `500` responses
 - [Sentry](#sentry) — one scope per request
-- [Database connections](#database-connections) — keep opened and usable across requests
+- [Database connections](#database-connections) — keep opened and usable across requests; a leftover transaction is rolled back after its request
 - [xhprof profiling](#configuration)
 - [libvips cache limit](#configuration)
 
@@ -268,6 +268,9 @@ Configure as usual.
 | `PdoSessionHandler` | new connection every request | one persistent connection per worker |
 | `PdoSessionHandler`, server dropped the connection | session request fails | reconnect, re-run the failed query, carry on |
 | `PdoSessionHandler::LOCK_ADVISORY`, failed request | lock dies with the connection | lock released before the retry |
+| Request ends with an open transaction | process exit rolls it back | rolled back after the response, error logged with the request |
+
+A transaction never outlives its request. Code that starts one and throws before it commits or rolls back is common (Sylius' `ResourceUpdateHandler` does it on any non-optimistic-lock error). Without this, the next requests on that worker run inside the leftover transaction. Nothing they write commits, and their row locks block every other worker.
 
 Turn off DoctrineBundle's idle timeout. Otherwise it closes the connection 10 minutes after connecting:
 
@@ -296,6 +299,7 @@ Not covered:
 | `WorkerRequestReceivedEvent` | `Rapira\Http\Request` |
 | `WorkerResponseSentEvent` | Symfony `Request` + `Response` |
 | `WorkerRequestFailedEvent` | `Rapira\Http\Request` + throwable |
+| `WorkerRequestFinishedEvent` | `Rapira\Http\Request` or `null`; after every request, before `services_resetter` |
 
 ## Developing with Symfony and Rapira
 

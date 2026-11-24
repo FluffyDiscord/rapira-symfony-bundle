@@ -3,8 +3,10 @@
 namespace FluffyDiscord\RapiraBundle\DependencyInjection;
 
 use FluffyDiscord\RapiraBundle\Doctrine\DoctrinePreconnectListener;
+use FluffyDiscord\RapiraBundle\Doctrine\OpenTransactionListener;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerBootingEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFailedEvent;
+use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFinishedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestReceivedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerResponseSentEvent;
 use FluffyDiscord\RapiraBundle\Profiling\XhprofRequestProfiler;
@@ -56,6 +58,10 @@ class FluffyDiscordRapiraExtension extends Extension
         }
 
         $dbalInstalled = class_exists(\Doctrine\DBAL\Connection::class);
+        if ($dbalInstalled) {
+            $this->registerOpenTransactionListener($container);
+        }
+
         if ($dbalInstalled && $config['doctrine']['preconnect']) {
             $this->registerDoctrinePreconnect($container);
         }
@@ -185,6 +191,16 @@ class FluffyDiscordRapiraExtension extends Extension
             $recorder->addTag('kernel.event_listener', ['event' => WorkerResponseSentEvent::class, 'method' => '__invoke']);
             $container->setDefinition(WarmupManifestRecorder::class, $recorder);
         }
+    }
+
+    private function registerOpenTransactionListener(ContainerBuilder $container): void
+    {
+        $definition = new Definition(OpenTransactionListener::class, [
+            new Reference('doctrine', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]);
+        $definition->addTag('kernel.event_listener', ['event' => WorkerRequestFinishedEvent::class, 'method' => '__invoke']);
+        $container->setDefinition(OpenTransactionListener::class, $definition);
     }
 
     private function registerDoctrinePreconnect(ContainerBuilder $container): void

@@ -4,6 +4,7 @@ namespace FluffyDiscord\RapiraBundle\Worker;
 
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerBootingEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFailedEvent;
+use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestFinishedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerRequestReceivedEvent;
 use FluffyDiscord\RapiraBundle\Event\Worker\WorkerResponseSentEvent;
 use FluffyDiscord\RapiraBundle\ErrorHandler\MinimalErrorPage;
@@ -142,6 +143,7 @@ class HttpWorker
             $this->removeUploadsOfRequestInFlight();
             $this->requestInFlight = null;
 
+            $this->eventDispatcher->dispatch(new WorkerRequestFinishedEvent($rapiraRequest));
             $this->servicesResetter?->reset();
 
             if ($request !== null) {
